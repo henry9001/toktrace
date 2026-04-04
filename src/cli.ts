@@ -9,10 +9,8 @@ const { values, positionals } = parseArgs({
 });
 
 if (values.version) {
-  const { createRequire } = await import("node:module");
-  const require = createRequire(import.meta.url);
-  const pkg = require("../package.json") as { version: string };
-  console.log(pkg.version);
+  const { default: pkg } = await import("../package.json", { with: { type: "json" } });
+  console.log((pkg as { version: string }).version);
   process.exit(0);
 }
 
