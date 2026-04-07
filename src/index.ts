@@ -14,7 +14,7 @@ export {
   getUndeliveredAlerts,
   markAlertDelivered,
 } from "./budget.js";
-export { insertEvent, queryEvents, insertSnapshot, listSnapshots, getSnapshot, getSnapshotByName, buildSummary } from "./store.js";
+export { LocalStore, insertEvent, queryEvents, insertSnapshot, listSnapshots, getSnapshot, getSnapshotByName, buildSummary } from "./store.js";
 export { createSnapshot } from "./snapshot.js";
 export { compareSnapshots } from "./compare.js";
 export { exportSnapshot } from "./export.js";

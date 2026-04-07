@@ -123,9 +123,9 @@ function renderComparison(c) {
   let html = '<div class="card"><h2>Summary Comparison</h2><table>';
   html += '<tr><th>Metric</th><th class="num">Before (A)</th><th class="num">After (B)</th><th class="num">Delta</th></tr>';
   html += row("Total tokens", d.total_tokens, "", 0);
-  html += row("Input tokens", d.total_input_tokens, "", 0);
-  html += row("Output tokens", d.total_output_tokens, "", 0);
-  html += row("Est. cost", d.total_estimated_cost, "$", 6);
+  html += row("Prompt tokens", d.total_prompt_tokens, "", 0);
+  html += row("Completion tokens", d.total_completion_tokens, "", 0);
+  html += row("Est. cost", d.total_cost_usd, "$", 6);
   html += row("Events", d.event_count, "", 0);
   html += '</table></div>';
 

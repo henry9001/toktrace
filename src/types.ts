@@ -9,24 +9,22 @@ export interface TokTraceOptions {
 
 export interface LLMEvent {
   id: string;
-  timestamp: string;
+  ts: string;
   model: string;
   provider: string;
-  input_tokens: number;
-  output_tokens: number;
-  total_tokens: number;
-  estimated_cost: number;
-  latency_ms: number;
-  prompt_hash: string | null;
-  app_tag: string | null;
-  env: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_usd: number;
+  duration_ms: number;
+  endpoint: string | null;
+  metadata: Record<string, unknown> | null;
 }
 
 export interface SnapshotSummary {
-  total_input_tokens: number;
-  total_output_tokens: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
   total_tokens: number;
-  total_estimated_cost: number;
+  total_cost_usd: number;
   event_count: number;
   top_spenders: Array<{ model: string; total_cost: number; event_count: number }>;
   suggestions: string[];
@@ -62,9 +60,9 @@ export interface SnapshotComparison {
   snapshot_b: Snapshot;
   delta: {
     total_tokens: DeltaValue;
-    total_input_tokens: DeltaValue;
-    total_output_tokens: DeltaValue;
-    total_estimated_cost: DeltaValue;
+    total_prompt_tokens: DeltaValue;
+    total_completion_tokens: DeltaValue;
+    total_cost_usd: DeltaValue;
     event_count: DeltaValue;
   };
   top_spenders: TopSpenderDelta[];

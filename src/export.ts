@@ -44,10 +44,10 @@ function generateReport(snapshot: Snapshot): string {
   lines.push(``);
   lines.push(`| Metric | Value |`);
   lines.push(`|--------|-------|`);
-  lines.push(`| Input tokens | ${s.total_input_tokens.toLocaleString()} |`);
-  lines.push(`| Output tokens | ${s.total_output_tokens.toLocaleString()} |`);
+  lines.push(`| Prompt tokens | ${s.total_prompt_tokens.toLocaleString()} |`);
+  lines.push(`| Completion tokens | ${s.total_completion_tokens.toLocaleString()} |`);
   lines.push(`| Total tokens | ${s.total_tokens.toLocaleString()} |`);
-  lines.push(`| Estimated cost | $${s.total_estimated_cost.toFixed(6)} |`);
+  lines.push(`| Estimated cost | $${s.total_cost_usd.toFixed(6)} |`);
   lines.push(``);
 
   if (s.top_spenders.length > 0) {

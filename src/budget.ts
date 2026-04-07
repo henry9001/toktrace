@@ -230,8 +230,8 @@ export function budgetCheck(
 
     // Accumulate running totals
     const existing = getPeriodTotals(db, pType, ts);
-    const newTokens = (existing?.tokens ?? 0) + event.total_tokens;
-    const newCost = (existing?.cost_usd ?? 0) + event.estimated_cost;
+    const newTokens = (existing?.tokens ?? 0) + event.prompt_tokens + event.completion_tokens;
+    const newCost = (existing?.cost_usd ?? 0) + event.cost_usd;
     upsertPeriodTotals(db, pType, newTokens, newCost, ts);
 
     // Determine limits for this period type

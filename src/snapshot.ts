@@ -15,8 +15,8 @@ export function createSnapshot(opts: CreateSnapshotOptions): Snapshot {
   const capturedAt = new Date().toISOString();
   const events = queryEvents({ since: opts.since, until: opts.until }, opts.dbPath);
 
-  const windowStart = events.length > 0 ? events[0].timestamp : opts.since ?? null;
-  const windowEnd = events.length > 0 ? events[events.length - 1].timestamp : opts.until ?? null;
+  const windowStart = events.length > 0 ? events[0].ts : opts.since ?? null;
+  const windowEnd = events.length > 0 ? events[events.length - 1].ts : opts.until ?? null;
 
   const snapshot: Snapshot = {
     snapshot_id: randomUUID(),

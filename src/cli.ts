@@ -300,8 +300,8 @@ Options:
     if (snapshot.window_start) {
       console.log(`  Window:     ${snapshot.window_start} → ${snapshot.window_end}`);
     }
-    console.log(`  Tokens:     ${snapshot.summary.total_tokens.toLocaleString()} total (${snapshot.summary.total_input_tokens.toLocaleString()} in / ${snapshot.summary.total_output_tokens.toLocaleString()} out)`);
-    console.log(`  Est. cost:  $${snapshot.summary.total_estimated_cost.toFixed(6)}`);
+    console.log(`  Tokens:     ${snapshot.summary.total_tokens.toLocaleString()} total (${snapshot.summary.total_prompt_tokens.toLocaleString()} in / ${snapshot.summary.total_completion_tokens.toLocaleString()} out)`);
+    console.log(`  Est. cost:  $${snapshot.summary.total_cost_usd.toFixed(6)}`);
     if (snapshot.summary.suggestions.length > 0) {
       console.log(`  Suggestions:`);
       for (const s of snapshot.summary.suggestions) {
@@ -435,9 +435,9 @@ Options:
       };
 
       console.log("  Total tokens:    " + fmtDelta(d.total_tokens));
-      console.log("  Input tokens:    " + fmtDelta(d.total_input_tokens));
-      console.log("  Output tokens:   " + fmtDelta(d.total_output_tokens));
-      console.log("  Est. cost:       " + fmtDelta(d.total_estimated_cost, "$", 6));
+      console.log("  Prompt tokens:   " + fmtDelta(d.total_prompt_tokens));
+      console.log("  Completion tkns: " + fmtDelta(d.total_completion_tokens));
+      console.log("  Est. cost:       " + fmtDelta(d.total_cost_usd, "$", 6));
       console.log("  Events:          " + fmtDelta(d.event_count));
 
       if (result.top_spenders.length > 0) {

@@ -51,9 +51,9 @@ export function compareSnapshots(
     snapshot_b: b,
     delta: {
       total_tokens: delta(sa.total_tokens, sb.total_tokens),
-      total_input_tokens: delta(sa.total_input_tokens, sb.total_input_tokens),
-      total_output_tokens: delta(sa.total_output_tokens, sb.total_output_tokens),
-      total_estimated_cost: delta(sa.total_estimated_cost, sb.total_estimated_cost),
+      total_prompt_tokens: delta(sa.total_prompt_tokens, sb.total_prompt_tokens),
+      total_completion_tokens: delta(sa.total_completion_tokens, sb.total_completion_tokens),
+      total_cost_usd: delta(sa.total_cost_usd, sb.total_cost_usd),
       event_count: delta(sa.event_count, sb.event_count),
     },
     top_spenders,
