@@ -57,6 +57,11 @@ function applyMigrations(db: Database.Database): void {
   initBudgetSchema(db);
 }
 
+export function initStore(dbPath?: string): void {
+  const db = openDb(dbPath);
+  db.close();
+}
+
 export function insertEvent(event: LLMEvent, dbPath?: string): BudgetAlert[] {
   const db = openDb(dbPath);
   db.prepare(`

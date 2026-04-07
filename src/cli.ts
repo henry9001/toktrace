@@ -1,6 +1,9 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 import type { AlertsConfig, BudgetConfig } from "./config.js";
+import { initStore } from "./store.js";
 import { createSnapshot, listSnapshots, getSnapshot } from "./snapshot.js";
 import { exportSnapshot } from "./export.js";
 import { compareSnapshots } from "./compare.js";
@@ -49,7 +52,24 @@ Options:
 }
 
 if (command === "init") {
-  console.log("toktrace init — not yet implemented");
+  const configDir = defaultConfigDir();
+  const configPath = join(configDir, "config.json");
+  const dbPath = join(configDir, "events.db");
+
+  const configExisted = existsSync(configPath);
+  const dbExisted = existsSync(dbPath);
+
+  // Write default config if it doesn't exist, preserve existing config
+  if (!configExisted) {
+    saveConfig({});
+  }
+
+  // Initialize the SQLite database (creates tables if needed)
+  initStore(dbPath);
+
+  console.log(`Initialized toktrace in ${configDir}`);
+  console.log(`  config: ${configPath}${configExisted ? " (already existed)" : " (created)"}`);
+  console.log(`  database: ${dbPath}${dbExisted ? " (already existed)" : " (created)"}`);
   process.exit(0);
 }
 
