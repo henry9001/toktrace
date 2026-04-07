@@ -1,10 +1,12 @@
 import { parseArgs } from "node:util";
 import { loadConfig, saveConfig } from "./config.js";
-import type { BudgetConfig } from "./config.js";
+import type { AlertsConfig, BudgetConfig } from "./config.js";
 import { createSnapshot, listSnapshots, getSnapshot } from "./snapshot.js";
 import { exportSnapshot } from "./export.js";
 import { compareSnapshots } from "./compare.js";
 import { startDashboard } from "./dashboard.js";
+import { deliverPendingAlerts } from "./alerts.js";
+import { openBudgetDb } from "./budget.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -30,6 +32,8 @@ if (!command || values.help) {
 Commands:
   init              Initialize toktrace in the current project
   budget set        Set budget limits (daily/weekly token and cost caps)
+  alerts set        Configure alert delivery (desktop notifications, CLI warnings)
+  alerts deliver    Deliver any pending budget alerts now
   snapshot create   Create a named snapshot of recent LLM events
   snapshot list     List all snapshots
   snapshot show     Show a specific snapshot by ID
@@ -146,6 +150,80 @@ Pass 0 to a flag to remove that limit.
   }
 
   console.error(`Unknown budget subcommand: ${subcommand}`);
+  process.exit(1);
+}
+
+if (command === "alerts") {
+  const subcommand = positionals[1];
+
+  if (!subcommand || subcommand === "help" || values.help) {
+    console.log(`Usage: toktrace alerts <subcommand> [options]
+
+Subcommands:
+  set       Configure alert delivery channels
+  deliver   Deliver any pending budget alerts now
+
+Options for 'set':
+  --desktop <on|off>   Enable/disable desktop notifications (default: on)
+  --cli <on|off>       Enable/disable CLI stderr warnings (default: on)
+`);
+    process.exit(0);
+  }
+
+  if (subcommand === "set") {
+    const { values: setValues } = parseArgs({
+      args: process.argv.slice(4),
+      allowPositionals: false,
+      options: {
+        desktop: { type: "string" },
+        cli: { type: "string" },
+      },
+    });
+
+    const config = loadConfig();
+    const alerts: AlertsConfig = config.alerts ?? {};
+
+    if (setValues.desktop !== undefined) {
+      if (setValues.desktop !== "on" && setValues.desktop !== "off") {
+        console.error("Error: --desktop must be 'on' or 'off'");
+        process.exit(1);
+      }
+      alerts.desktop = setValues.desktop === "on";
+    }
+
+    if (setValues.cli !== undefined) {
+      if (setValues.cli !== "on" && setValues.cli !== "off") {
+        console.error("Error: --cli must be 'on' or 'off'");
+        process.exit(1);
+      }
+      alerts.cli = setValues.cli === "on";
+    }
+
+    config.alerts = alerts;
+    saveConfig(config);
+
+    console.log("Alert settings updated:");
+    console.log(`  desktop: ${alerts.desktop !== false ? "on" : "off"}`);
+    console.log(`  cli:     ${alerts.cli !== false ? "on" : "off"}`);
+    process.exit(0);
+  }
+
+  if (subcommand === "deliver") {
+    const db = openBudgetDb();
+    try {
+      const delivered = deliverPendingAlerts(db);
+      if (delivered.length === 0) {
+        console.log("No pending alerts.");
+      } else {
+        console.log(`Delivered ${delivered.length} alert(s).`);
+      }
+    } finally {
+      db.close();
+    }
+    process.exit(0);
+  }
+
+  console.error(`Unknown alerts subcommand: ${subcommand}`);
   process.exit(1);
 }
 

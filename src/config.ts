@@ -11,8 +11,16 @@ export interface BudgetConfig {
   weekly_cost_limit?: number;
 }
 
+export interface AlertsConfig {
+  /** Enable desktop notifications (notify-send / osascript). Defaults to true. */
+  desktop?: boolean;
+  /** Enable CLI stderr warnings. Defaults to true. */
+  cli?: boolean;
+}
+
 export interface TokTraceConfig {
   budget?: BudgetConfig;
+  alerts?: AlertsConfig;
 }
 
 export function defaultConfigDir(): string {

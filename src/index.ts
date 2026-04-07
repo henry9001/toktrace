@@ -1,6 +1,6 @@
 export { init } from "./init.js";
 export type { TokTraceOptions, LLMEvent, Snapshot, SnapshotSummary, SnapshotComparison, DeltaValue, TopSpenderDelta, AlertLevel, BudgetMetric, BudgetAlert } from "./types.js";
-export type { BudgetConfig, TokTraceConfig } from "./config.js";
+export type { BudgetConfig, AlertsConfig, TokTraceConfig } from "./config.js";
 export { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 export type { PeriodType, PeriodTotals } from "./budget.js";
 export {
@@ -21,3 +21,4 @@ export { exportSnapshot } from "./export.js";
 export type { ExportOptions, ExportResult } from "./export.js";
 export { startDashboard } from "./dashboard.js";
 export type { DashboardOptions } from "./dashboard.js";
+export { formatAlertMessage, sendDesktopNotification, printCliWarning, deliverAlert, deliverPendingAlerts } from "./alerts.js";
