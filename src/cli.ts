@@ -10,6 +10,7 @@ import { compareSnapshots } from "./compare.js";
 import { startDashboard } from "./dashboard.js";
 import { deliverPendingAlerts } from "./alerts.js";
 import { openBudgetDb } from "./budget.js";
+import { listPricing } from "./pricing.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -34,6 +35,7 @@ if (!command || values.help) {
 
 Commands:
   init              Initialize toktrace in the current project
+  pricing           List supported models and their token pricing
   budget set        Set budget limits (daily/weekly token and cost caps)
   alerts set        Configure alert delivery (desktop notifications, CLI warnings)
   alerts deliver    Deliver any pending budget alerts now
@@ -73,6 +75,53 @@ if (command === "init") {
   console.log(`Initialized toktrace in ${configDir}`);
   console.log(`  config: ${configPath}${configExisted ? " (already existed)" : " (created)"}`);
   console.log(`  database: ${dbPath}${dbExisted ? " (already existed)" : " (created)"}`);
+  process.exit(0);
+}
+
+if (command === "pricing") {
+  const pricingArgs = rawArgs.slice(rawArgs.indexOf("pricing") + 1);
+  const parsedPricing = parseArgs({
+    args: pricingArgs,
+    allowPositionals: false,
+    options: {
+      json: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (parsedPricing.values.help) {
+    console.log(`Usage: toktrace pricing [--json]
+
+List all supported models with their per-1k-token pricing (input and output).
+
+Options:
+  --json       Output as JSON array
+  -h, --help   Show this help message
+`);
+    process.exit(0);
+  }
+
+  const entries = listPricing();
+
+  if (parsedPricing.values.json) {
+    console.log(JSON.stringify(entries, null, 2));
+    process.exit(0);
+  }
+
+  console.log(`${"MODEL".padEnd(32)} ${"PROVIDER".padEnd(12)} ${"INPUT/1k".padStart(12)} ${"OUTPUT/1k".padStart(12)}`);
+  console.log("─".repeat(70));
+
+  let lastProvider = "";
+  for (const e of entries) {
+    if (e.provider !== lastProvider && lastProvider !== "") {
+      console.log("");
+    }
+    lastProvider = e.provider;
+    const inp = `$${e.input_per_1k.toFixed(6)}`;
+    const out = `$${e.output_per_1k.toFixed(6)}`;
+    console.log(`${e.model.padEnd(32)} ${e.provider.padEnd(12)} ${inp.padStart(12)} ${out.padStart(12)}`);
+  }
+  console.log(`\n${entries.length} models supported. Unknown models return $0 cost estimate.`);
   process.exit(0);
 }
 

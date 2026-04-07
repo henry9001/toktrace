@@ -1,5 +1,6 @@
 export { init } from "./init.js";
-export { estimateCost } from "./pricing.js";
+export { estimateCost, getPricingTable, listPricing } from "./pricing.js";
+export type { ModelPricing, PricingEntry } from "./pricing.js";
 export type { TokTraceOptions, LLMEvent, ProxyTarget, Snapshot, SnapshotSummary, SnapshotComparison, DeltaValue, TopSpenderDelta, AlertLevel, BudgetMetric, BudgetAlert } from "./types.js";
 export type { BudgetConfig, AlertsConfig, TokTraceConfig } from "./config.js";
 export { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
