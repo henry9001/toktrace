@@ -6,3 +6,4 @@ state.json
 node_modules/
 dist/
 .beads/
+CLAUDE.md
