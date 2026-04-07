@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { URL } from "node:url";
 import { listSnapshots } from "./store.js";
 import { compareSnapshots } from "./compare.js";
+import { loadConfig } from "./config.js";
+import { openBudgetDb, getPeriodTotals } from "./budget.js";
 
 const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -33,10 +35,24 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .suggestions ul { list-style: disc; padding-left: 1.2rem; }
   .suggestions li { margin-bottom: .3rem; font-size: .9rem; }
   .suggestions h3 { font-size: .9rem; font-weight: 600; margin-bottom: .5rem; }
+  .budget-widget { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; }
+  .budget-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.2rem; }
+  .budget-card h3 { font-size: .85rem; font-weight: 600; text-transform: uppercase; color: #666; margin-bottom: .75rem; }
+  .budget-bar-wrap { margin-bottom: .75rem; }
+  .budget-bar-label { display: flex; justify-content: space-between; font-size: .8rem; margin-bottom: .3rem; }
+  .budget-bar { height: 12px; background: #e5e7eb; border-radius: 6px; overflow: hidden; }
+  .budget-bar-fill { height: 100%; border-radius: 6px; transition: width .3s ease; }
+  .budget-bar-fill.green { background: #16a34a; }
+  .budget-bar-fill.yellow { background: #ca8a04; }
+  .budget-bar-fill.red { background: #dc2626; }
+  .budget-no-config { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 2rem; color: #666; font-size: .9rem; }
+  .budget-no-config code { background: #f1f5f9; padding: .2rem .5rem; border-radius: 4px; font-size: .85rem; }
 </style>
 </head>
 <body>
 <h1>TokTrace &mdash; Snapshot Comparison</h1>
+
+<div id="budget-container"></div>
 
 <div class="selector">
   <label>Before (A)
@@ -143,6 +159,52 @@ function row(label, d, prefix, decimals) {
   return '<tr><td>' + label + '</td><td class="num">' + prefix + fmtNum(d.before, decimals) + '</td><td class="num">' + prefix + fmtNum(d.after, decimals) + '</td><td class="num">' + fmtDelta(d, prefix, decimals) + '</td></tr>';
 }
 
+async function loadBudget() {
+  const container = document.getElementById("budget-container");
+  try {
+    const res = await fetch("/api/budget-status");
+    const data = await res.json();
+    if (!data.configured) {
+      container.innerHTML = '<div class="budget-no-config">No budget configured. Set a budget: <code>toktrace budget set --daily-cost 5.00</code></div>';
+      return;
+    }
+    let html = '<div class="budget-widget">';
+    html += renderBudgetCard("Daily", data.daily);
+    html += renderBudgetCard("Weekly", data.weekly);
+    html += '</div>';
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = '';
+  }
+}
+
+function renderBudgetCard(label, period) {
+  if (!period) return '';
+  const hasCost = period.cost_limit != null;
+  const hasTokens = period.token_limit != null;
+  if (!hasCost && !hasTokens) return '';
+  let html = '<div class="budget-card"><h3>' + label + ' Budget</h3>';
+  if (hasCost) {
+    const pct = period.cost_limit > 0 ? Math.min((period.cost_used / period.cost_limit) * 100, 100) : 0;
+    const color = pct >= 90 ? "red" : pct >= 70 ? "yellow" : "green";
+    html += '<div class="budget-bar-wrap">';
+    html += '<div class="budget-bar-label"><span>Cost</span><span>$' + period.cost_used.toFixed(2) + ' / $' + period.cost_limit.toFixed(2) + '</span></div>';
+    html += '<div class="budget-bar"><div class="budget-bar-fill ' + color + '" style="width:' + pct.toFixed(1) + '%"></div></div>';
+    html += '</div>';
+  }
+  if (hasTokens) {
+    const pct = period.token_limit > 0 ? Math.min((period.tokens_used / period.token_limit) * 100, 100) : 0;
+    const color = pct >= 90 ? "red" : pct >= 70 ? "yellow" : "green";
+    html += '<div class="budget-bar-wrap">';
+    html += '<div class="budget-bar-label"><span>Tokens</span><span>' + period.tokens_used.toLocaleString() + ' / ' + period.token_limit.toLocaleString() + '</span></div>';
+    html += '<div class="budget-bar"><div class="budget-bar-fill ' + color + '" style="width:' + pct.toFixed(1) + '%"></div></div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+loadBudget();
 loadSnapshots();
 </script>
 </body>
@@ -171,6 +233,50 @@ export function startDashboard(opts: DashboardOptions = {}): void {
         const snapshots = listSnapshots(dbPath);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(snapshots));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/budget-status" && req.method === "GET") {
+      try {
+        const config = loadConfig();
+        const budget = config.budget;
+        if (!budget || (!budget.daily_cost_limit && !budget.weekly_cost_limit && !budget.daily_token_limit && !budget.weekly_token_limit)) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ configured: false }));
+          return;
+        }
+
+        const db = openBudgetDb(dbPath);
+        const dailyTotals = getPeriodTotals(db, "daily");
+        const weeklyTotals = getPeriodTotals(db, "weekly");
+        db.close();
+
+        const result: Record<string, unknown> = { configured: true };
+
+        if (budget.daily_cost_limit != null || budget.daily_token_limit != null) {
+          result.daily = {
+            cost_used: dailyTotals?.cost_usd ?? 0,
+            cost_limit: budget.daily_cost_limit ?? null,
+            tokens_used: dailyTotals?.tokens ?? 0,
+            token_limit: budget.daily_token_limit ?? null,
+          };
+        }
+
+        if (budget.weekly_cost_limit != null || budget.weekly_token_limit != null) {
+          result.weekly = {
+            cost_used: weeklyTotals?.cost_usd ?? 0,
+            cost_limit: budget.weekly_cost_limit ?? null,
+            tokens_used: weeklyTotals?.tokens ?? 0,
+            token_limit: budget.weekly_token_limit ?? null,
+          };
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result));
       } catch (err) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: (err as Error).message }));
