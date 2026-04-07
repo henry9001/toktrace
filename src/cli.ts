@@ -3,6 +3,8 @@ import { loadConfig, saveConfig } from "./config.js";
 import type { BudgetConfig } from "./config.js";
 import { createSnapshot, listSnapshots, getSnapshot } from "./snapshot.js";
 import { exportSnapshot } from "./export.js";
+import { compareSnapshots } from "./compare.js";
+import { startDashboard } from "./dashboard.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -31,7 +33,9 @@ Commands:
   snapshot create   Create a named snapshot of recent LLM events
   snapshot list     List all snapshots
   snapshot show     Show a specific snapshot by ID
+  snapshot compare  Compare two snapshots side by side
   snapshot export   Export a snapshot as a ZIP bundle (JSON + MD + metadata)
+  dashboard         Launch the comparison dashboard web UI
 
 Options:
   -h, --help     Show this help message
@@ -156,10 +160,13 @@ Subcommands:
   create   Create a named snapshot of current LLM event data
   list     List all snapshots
   show     Show a specific snapshot by ID
+  compare  Compare two snapshots side by side
   export   Export a snapshot as a self-contained ZIP bundle
 
 Options:
   --name <name>    Snapshot name (required for create and export)
+  --a <id|name>    First snapshot for compare (before)
+  --b <id|name>    Second snapshot for compare (after)
   --since <iso>    Only include events at or after this timestamp
   --until <iso>    Only include events at or before this timestamp
   --output <dir>   Output directory for export (defaults to cwd)
@@ -305,10 +312,120 @@ Options:
     process.exit(0);
   }
 
+  if (subcommand === "compare") {
+    const compareArgv = subArgs.filter((a) => a !== "compare");
+    const parsed = parseArgs({
+      args: compareArgv,
+      allowPositionals: false,
+      options: {
+        a: { type: "string" },
+        b: { type: "string" },
+        help: { type: "boolean", short: "h" },
+      },
+    });
+
+    if (parsed.values.help) {
+      console.log(`Usage: toktrace snapshot compare --a <id|name> --b <id|name>
+
+Compare two snapshots side by side showing deltas for tokens, cost, and top spenders.
+
+Options:
+  --a <id|name>    First snapshot — before (required)
+  --b <id|name>    Second snapshot — after (required)
+  -h, --help       Show this help message
+`);
+      process.exit(0);
+    }
+
+    if (!parsed.values.a || !parsed.values.b) {
+      console.error("Error: both --a and --b are required for snapshot compare");
+      console.error("  Example: toktrace snapshot compare --a before-refactor --b after-refactor");
+      process.exit(1);
+    }
+
+    try {
+      const result = compareSnapshots(parsed.values.a, parsed.values.b);
+      const d = result.delta;
+
+      console.log(`Comparing: "${result.snapshot_a.name}" vs "${result.snapshot_b.name}"\n`);
+
+      const fmtDelta = (dv: { before: number; after: number; absolute: number; percent: number | null }, prefix = "", decimals = 0) => {
+        const fmt = (n: number) => decimals > 0 ? `${prefix}${n.toFixed(decimals)}` : `${prefix}${n.toLocaleString()}`;
+        const sign = dv.absolute > 0 ? "+" : dv.absolute < 0 ? "" : " ";
+        const pct = dv.percent != null ? ` (${dv.percent > 0 ? "+" : ""}${dv.percent.toFixed(1)}%)` : "";
+        return `${fmt(dv.before)}  →  ${fmt(dv.after)}  ${sign}${decimals > 0 ? `${prefix}${dv.absolute.toFixed(decimals)}` : `${prefix}${dv.absolute.toLocaleString()}`}${pct}`;
+      };
+
+      console.log("  Total tokens:    " + fmtDelta(d.total_tokens));
+      console.log("  Input tokens:    " + fmtDelta(d.total_input_tokens));
+      console.log("  Output tokens:   " + fmtDelta(d.total_output_tokens));
+      console.log("  Est. cost:       " + fmtDelta(d.total_estimated_cost, "$", 6));
+      console.log("  Events:          " + fmtDelta(d.event_count));
+
+      if (result.top_spenders.length > 0) {
+        console.log("\nTop Spenders:");
+        for (const s of result.top_spenders) {
+          const sign = s.absolute > 0 ? "+" : s.absolute < 0 ? "" : " ";
+          const pct = s.percent != null ? ` (${s.percent > 0 ? "+" : ""}${s.percent.toFixed(1)}%)` : "";
+          console.log(`  ${s.model.padEnd(30)} $${s.before_cost.toFixed(6)} → $${s.after_cost.toFixed(6)}  ${sign}$${s.absolute.toFixed(6)}${pct}`);
+        }
+      }
+
+      if (result.suggestions_a.length > 0 || result.suggestions_b.length > 0) {
+        console.log("\nSuggestions:");
+        if (result.suggestions_a.length > 0) {
+          console.log("  Before:");
+          for (const s of result.suggestions_a) console.log(`    • ${s}`);
+        }
+        if (result.suggestions_b.length > 0) {
+          console.log("  After:");
+          for (const s of result.suggestions_b) console.log(`    • ${s}`);
+        }
+      }
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
   console.error(`Unknown snapshot subcommand: ${subcommand}`);
-  console.error("  Use: toktrace snapshot create|list|show");
+  console.error("  Use: toktrace snapshot create|list|show|compare|export");
   process.exit(1);
 }
 
-console.error(`Unknown command: ${command}`);
-process.exit(1);
+if (command === "dashboard") {
+  const dashArgs = rawArgs.slice(rawArgs.indexOf("dashboard") + 1);
+  const parsed = parseArgs({
+    args: dashArgs,
+    allowPositionals: false,
+    options: {
+      port: { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (parsed.values.help) {
+    console.log(`Usage: toktrace dashboard [--port <number>]
+
+Launch the snapshot comparison dashboard in your browser.
+
+Options:
+  --port <number>  Port to listen on (default: 3000)
+  -h, --help       Show this help message
+`);
+    process.exit(0);
+  }
+
+  const port = parsed.values.port ? Number(parsed.values.port) : undefined;
+  if (port !== undefined && (!Number.isFinite(port) || port < 1 || port > 65535)) {
+    console.error("Error: --port must be a number between 1 and 65535");
+    process.exit(1);
+  }
+
+  startDashboard({ port });
+  // Server keeps the process alive — no process.exit() here
+} else {
+  console.error(`Unknown command: ${command}`);
+  process.exit(1);
+}

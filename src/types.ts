@@ -41,3 +41,33 @@ export interface Snapshot {
   event_ids: string[];
   summary: SnapshotSummary;
 }
+
+export interface DeltaValue {
+  before: number;
+  after: number;
+  absolute: number;
+  percent: number | null;
+}
+
+export interface TopSpenderDelta {
+  model: string;
+  before_cost: number;
+  after_cost: number;
+  absolute: number;
+  percent: number | null;
+}
+
+export interface SnapshotComparison {
+  snapshot_a: Snapshot;
+  snapshot_b: Snapshot;
+  delta: {
+    total_tokens: DeltaValue;
+    total_input_tokens: DeltaValue;
+    total_output_tokens: DeltaValue;
+    total_estimated_cost: DeltaValue;
+    event_count: DeltaValue;
+  };
+  top_spenders: TopSpenderDelta[];
+  suggestions_a: string[];
+  suggestions_b: string[];
+}
