@@ -120,6 +120,14 @@ export function getSnapshot(snapshotId: string, dbPath?: string): Snapshot | nul
   return deserializeSnapshot(row);
 }
 
+export function getSnapshotByName(name: string, dbPath?: string): Snapshot | null {
+  const db = openDb(dbPath);
+  const row = db.prepare("SELECT * FROM snapshots WHERE name = ? ORDER BY captured_at DESC LIMIT 1").get(name) as Record<string, unknown> | undefined;
+  db.close();
+  if (!row) return null;
+  return deserializeSnapshot(row);
+}
+
 export function listSnapshots(dbPath?: string): Snapshot[] {
   const db = openDb(dbPath);
   const rows = db.prepare("SELECT * FROM snapshots ORDER BY captured_at DESC").all() as Record<string, unknown>[];

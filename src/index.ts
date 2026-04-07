@@ -11,5 +11,7 @@ export {
   initBudgetSchema,
   openBudgetDb,
 } from "./budget.js";
-export { insertEvent, queryEvents, insertSnapshot, listSnapshots, getSnapshot, buildSummary } from "./store.js";
+export { insertEvent, queryEvents, insertSnapshot, listSnapshots, getSnapshot, getSnapshotByName, buildSummary } from "./store.js";
 export { createSnapshot } from "./snapshot.js";
+export { exportSnapshot } from "./export.js";
+export type { ExportOptions, ExportResult } from "./export.js";

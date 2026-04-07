@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { loadConfig, saveConfig } from "./config.js";
 import type { BudgetConfig } from "./config.js";
 import { createSnapshot, listSnapshots, getSnapshot } from "./snapshot.js";
+import { exportSnapshot } from "./export.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -30,6 +31,7 @@ Commands:
   snapshot create   Create a named snapshot of recent LLM events
   snapshot list     List all snapshots
   snapshot show     Show a specific snapshot by ID
+  snapshot export   Export a snapshot as a ZIP bundle (JSON + MD + metadata)
 
 Options:
   -h, --help     Show this help message
@@ -154,11 +156,13 @@ Subcommands:
   create   Create a named snapshot of current LLM event data
   list     List all snapshots
   show     Show a specific snapshot by ID
+  export   Export a snapshot as a self-contained ZIP bundle
 
 Options:
-  --name <name>    Snapshot name (required for create)
+  --name <name>    Snapshot name (required for create and export)
   --since <iso>    Only include events at or after this timestamp
   --until <iso>    Only include events at or before this timestamp
+  --output <dir>   Output directory for export (defaults to cwd)
   -h, --help       Show this help message
 `);
     process.exit(0);
@@ -249,6 +253,55 @@ Options:
       process.exit(1);
     }
     console.log(JSON.stringify(snapshot, null, 2));
+    process.exit(0);
+  }
+
+  if (subcommand === "export") {
+    const exportArgv = subArgs.filter((a) => a !== "export");
+    const parsed = parseArgs({
+      args: exportArgv,
+      allowPositionals: false,
+      options: {
+        name: { type: "string" },
+        output: { type: "string" },
+        help: { type: "boolean", short: "h" },
+      },
+    });
+
+    if (parsed.values.help) {
+      console.log(`Usage: toktrace snapshot export --name <name> [--output <dir>]
+
+Export a snapshot as a self-contained ZIP bundle for sharing.
+The bundle contains snapshot.json, report.md, and metadata.json.
+
+Options:
+  --name <name>    Snapshot name or ID to export (required)
+  --output <dir>   Output directory (defaults to current directory)
+  -h, --help       Show this help message
+`);
+      process.exit(0);
+    }
+
+    const name = parsed.values.name;
+    if (!name) {
+      console.error("Error: --name is required for snapshot export");
+      console.error("  Example: toktrace snapshot export --name before-refactor");
+      process.exit(1);
+    }
+
+    try {
+      const result = await exportSnapshot({
+        name,
+        outDir: parsed.values.output,
+      });
+      console.log(`Snapshot exported: ${result.zipPath}`);
+      console.log(`  Name:      ${result.snapshot.name}`);
+      console.log(`  Events:    ${result.snapshot.summary.event_count}`);
+      console.log(`  Contains:  snapshot.json, report.md, metadata.json`);
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      process.exit(1);
+    }
     process.exit(0);
   }
 
