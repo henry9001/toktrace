@@ -1,6 +1,7 @@
 import type { TokTraceOptions } from "./types.js";
 import * as openaiPatch from "./patches/openai.js";
 import * as anthropicPatch from "./patches/anthropic.js";
+import * as genericHttpPatch from "./patches/generic-http.js";
 
 interface PatchModule {
   name: string;
@@ -8,7 +9,7 @@ interface PatchModule {
   apply(options: TokTraceOptions): boolean;
 }
 
-const patches: PatchModule[] = [openaiPatch, anthropicPatch];
+const patches: PatchModule[] = [openaiPatch, anthropicPatch, genericHttpPatch];
 
 let initialized = false;
 

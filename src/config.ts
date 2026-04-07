@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { ProxyTarget } from "./types.js";
 
 export interface BudgetConfig {
   daily_token_limit?: number;
@@ -21,6 +22,8 @@ export interface AlertsConfig {
 export interface TokTraceConfig {
   budget?: BudgetConfig;
   alerts?: AlertsConfig;
+  /** Proxy targets for generic HTTP interception of unsupported providers. */
+  proxy_targets?: ProxyTarget[];
 }
 
 export function defaultConfigDir(): string {

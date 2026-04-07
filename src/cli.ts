@@ -37,6 +37,9 @@ Commands:
   budget set        Set budget limits (daily/weekly token and cost caps)
   alerts set        Configure alert delivery (desktop notifications, CLI warnings)
   alerts deliver    Deliver any pending budget alerts now
+  proxy add         Add a proxy target for an unsupported LLM provider
+  proxy list        List configured proxy targets
+  proxy remove      Remove a proxy target by name
   snapshot create   Create a named snapshot of recent LLM events
   snapshot list     List all snapshots
   snapshot show     Show a specific snapshot by ID
@@ -244,6 +247,140 @@ Options for 'set':
   }
 
   console.error(`Unknown alerts subcommand: ${subcommand}`);
+  process.exit(1);
+}
+
+if (command === "proxy") {
+  const subcommand = positionals[1];
+
+  if (!subcommand || subcommand === "help" || values.help) {
+    console.log(`Usage: toktrace proxy <subcommand> [options]
+
+Subcommands:
+  add      Add a proxy target for a generic HTTP LLM provider
+  list     List all configured proxy targets
+  remove   Remove a proxy target by name
+
+Options for 'add':
+  --name <name>            Provider name, e.g. "mistral" (required)
+  --url <pattern>          URL substring to match, e.g. "api.mistral.ai" (required)
+  --model-path <path>      Dot-path to model in response JSON (default: "model")
+  --input-path <path>      Dot-path to input token count (default: "usage.prompt_tokens")
+  --output-path <path>     Dot-path to output token count (default: "usage.completion_tokens")
+
+Options for 'remove':
+  --name <name>            Provider name to remove (required)
+`);
+    process.exit(0);
+  }
+
+  if (subcommand === "add") {
+    const { values: addValues } = parseArgs({
+      args: process.argv.slice(4),
+      allowPositionals: false,
+      options: {
+        name: { type: "string" },
+        url: { type: "string" },
+        "model-path": { type: "string" },
+        "input-path": { type: "string" },
+        "output-path": { type: "string" },
+      },
+    });
+
+    if (!addValues.name) {
+      console.error("Error: --name is required");
+      process.exit(1);
+    }
+    if (!addValues.url) {
+      console.error("Error: --url is required");
+      process.exit(1);
+    }
+
+    const config = loadConfig();
+    const targets = config.proxy_targets ?? [];
+
+    // Replace existing target with same name
+    const existing = targets.findIndex((t) => t.name === addValues.name);
+    const target = {
+      name: addValues.name,
+      urlPattern: addValues.url,
+      ...(addValues["model-path"] ? { modelPath: addValues["model-path"] } : {}),
+      ...(addValues["input-path"] ? { inputTokensPath: addValues["input-path"] } : {}),
+      ...(addValues["output-path"] ? { outputTokensPath: addValues["output-path"] } : {}),
+    };
+
+    if (existing >= 0) {
+      targets[existing] = target;
+      console.log(`Updated proxy target: ${addValues.name}`);
+    } else {
+      targets.push(target);
+      console.log(`Added proxy target: ${addValues.name}`);
+    }
+
+    config.proxy_targets = targets;
+    saveConfig(config);
+
+    console.log(`  URL pattern:   ${target.urlPattern}`);
+    console.log(`  Model path:    ${target.modelPath ?? "model"}`);
+    console.log(`  Input path:    ${target.inputTokensPath ?? "usage.prompt_tokens"}`);
+    console.log(`  Output path:   ${target.outputTokensPath ?? "usage.completion_tokens"}`);
+    process.exit(0);
+  }
+
+  if (subcommand === "list") {
+    const config = loadConfig();
+    const targets = config.proxy_targets ?? [];
+
+    if (targets.length === 0) {
+      console.log("No proxy targets configured.");
+      console.log("  Add one with: toktrace proxy add --name mistral --url api.mistral.ai");
+      process.exit(0);
+    }
+
+    console.log(`${"NAME".padEnd(20)}  ${"URL PATTERN".padEnd(35)}  ${"MODEL PATH".padEnd(15)}  ${"INPUT PATH".padEnd(25)}  OUTPUT PATH`);
+    console.log("─".repeat(120));
+    for (const t of targets) {
+      console.log(
+        `${t.name.padEnd(20)}  ${t.urlPattern.padEnd(35)}  ${(t.modelPath ?? "model").padEnd(15)}  ${(t.inputTokensPath ?? "usage.prompt_tokens").padEnd(25)}  ${t.outputTokensPath ?? "usage.completion_tokens"}`
+      );
+    }
+    process.exit(0);
+  }
+
+  if (subcommand === "remove") {
+    const { values: rmValues } = parseArgs({
+      args: process.argv.slice(4),
+      allowPositionals: false,
+      options: {
+        name: { type: "string" },
+      },
+    });
+
+    if (!rmValues.name) {
+      console.error("Error: --name is required");
+      process.exit(1);
+    }
+
+    const config = loadConfig();
+    const targets = config.proxy_targets ?? [];
+    const before = targets.length;
+    config.proxy_targets = targets.filter((t) => t.name !== rmValues.name);
+
+    if (config.proxy_targets.length === before) {
+      console.error(`Error: no proxy target found with name: ${rmValues.name}`);
+      process.exit(1);
+    }
+
+    if (config.proxy_targets.length === 0) {
+      config.proxy_targets = undefined;
+    }
+
+    saveConfig(config);
+    console.log(`Removed proxy target: ${rmValues.name}`);
+    process.exit(0);
+  }
+
+  console.error(`Unknown proxy subcommand: ${subcommand}`);
   process.exit(1);
 }
 

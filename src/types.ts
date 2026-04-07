@@ -1,3 +1,17 @@
+/** Describes how to intercept and parse token usage from a raw HTTP provider. */
+export interface ProxyTarget {
+  /** Human-readable provider name, e.g. "mistral" or "cohere". Used as the `provider` field in events. */
+  name: string;
+  /** Substring or regex-style pattern matched against the request URL. e.g. "api.mistral.ai" */
+  urlPattern: string;
+  /** Dot-separated path to the model field in the response JSON. Defaults to "model". */
+  modelPath?: string;
+  /** Dot-separated path to input/prompt token count. Defaults to "usage.prompt_tokens". */
+  inputTokensPath?: string;
+  /** Dot-separated path to output/completion token count. Defaults to "usage.completion_tokens". */
+  outputTokensPath?: string;
+}
+
 export interface TokTraceOptions {
   /** Path to the SQLite database file. Defaults to ~/.toktrace/events.db */
   dbPath?: string;
@@ -5,6 +19,10 @@ export interface TokTraceOptions {
   patchOpenAI?: boolean;
   /** Whether to auto-patch Anthropic SDK. Defaults to true. */
   patchAnthropic?: boolean;
+  /** Whether to auto-patch globalThis.fetch for generic HTTP interception. Defaults to true when proxyTargets are provided. */
+  patchGenericHTTP?: boolean;
+  /** Proxy target definitions for unsupported providers. Each target describes a URL pattern and how to extract token usage. */
+  proxyTargets?: ProxyTarget[];
 }
 
 export interface LLMEvent {
