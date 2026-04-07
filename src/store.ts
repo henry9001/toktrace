@@ -2,7 +2,8 @@ import Database from "better-sqlite3";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { LLMEvent, Snapshot, SnapshotSummary } from "./types.js";
+import type { BudgetAlert, LLMEvent, Snapshot, SnapshotSummary } from "./types.js";
+import { budgetCheck, initBudgetSchema } from "./budget.js";
 
 function defaultDbPath(): string {
   const dir = join(homedir(), ".toktrace");
@@ -53,9 +54,10 @@ function applyMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_snapshots_name ON snapshots(name);
     CREATE INDEX IF NOT EXISTS idx_snapshots_captured_at ON snapshots(captured_at);
   `);
+  initBudgetSchema(db);
 }
 
-export function insertEvent(event: LLMEvent, dbPath?: string): void {
+export function insertEvent(event: LLMEvent, dbPath?: string): BudgetAlert[] {
   const db = openDb(dbPath);
   db.prepare(`
     INSERT OR REPLACE INTO events
@@ -65,7 +67,9 @@ export function insertEvent(event: LLMEvent, dbPath?: string): void {
       (@id, @timestamp, @model, @provider, @input_tokens, @output_tokens, @total_tokens,
        @estimated_cost, @latency_ms, @prompt_hash, @app_tag, @env)
   `).run(event);
+  const alerts = budgetCheck(db, event);
   db.close();
+  return alerts;
 }
 
 export function queryEvents(

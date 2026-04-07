@@ -71,3 +71,19 @@ export interface SnapshotComparison {
   suggestions_a: string[];
   suggestions_b: string[];
 }
+
+export type AlertLevel = "warning" | "alert";
+export type BudgetMetric = "tokens" | "cost_usd";
+
+export interface BudgetAlert {
+  id: string;
+  period_type: string;
+  period_start: number;
+  metric: BudgetMetric;
+  threshold_pct: number;
+  level: AlertLevel;
+  current_value: number;
+  limit_value: number;
+  fired_at: string;
+  delivered: boolean;
+}

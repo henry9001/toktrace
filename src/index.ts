@@ -1,5 +1,5 @@
 export { init } from "./init.js";
-export type { TokTraceOptions, LLMEvent, Snapshot, SnapshotSummary, SnapshotComparison, DeltaValue, TopSpenderDelta } from "./types.js";
+export type { TokTraceOptions, LLMEvent, Snapshot, SnapshotSummary, SnapshotComparison, DeltaValue, TopSpenderDelta, AlertLevel, BudgetMetric, BudgetAlert } from "./types.js";
 export type { BudgetConfig, TokTraceConfig } from "./config.js";
 export { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 export type { PeriodType, PeriodTotals } from "./budget.js";
@@ -10,6 +10,9 @@ export {
   upsertPeriodTotals,
   initBudgetSchema,
   openBudgetDb,
+  budgetCheck,
+  getUndeliveredAlerts,
+  markAlertDelivered,
 } from "./budget.js";
 export { insertEvent, queryEvents, insertSnapshot, listSnapshots, getSnapshot, getSnapshotByName, buildSummary } from "./store.js";
 export { createSnapshot } from "./snapshot.js";
