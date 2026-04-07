@@ -1,14 +1,14 @@
 import { createRequire } from "node:module";
 import { randomUUID, createHash } from "node:crypto";
+import { insertEvent } from "../store.js";
+import { estimateCost } from "../pricing.js";
+import type { LLMEvent, TokTraceOptions } from "../types.js";
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const tryRequire: NodeRequire =
   typeof require !== "undefined"
     ? require
     : createRequire(import.meta.url);
-import { insertEvent } from "../store.js";
-import { estimateCost } from "../pricing.js";
-import type { LLMEvent, TokTraceOptions } from "../types.js";
 
 export const name = "openai";
 
