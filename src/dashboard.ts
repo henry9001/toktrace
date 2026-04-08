@@ -17,6 +17,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TokTrace — Snapshot Comparison</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; padding: 2rem; }
@@ -71,6 +72,19 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .filter-bar .custom-range { display: none; gap: .5rem; align-items: center; font-size: .85rem; }
   .filter-bar .custom-range.visible { display: flex; }
   .filter-bar .custom-range input[type="date"] { min-width: 130px; }
+  .scatter-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 2rem; }
+  .scatter-card h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+  .scatter-card canvas { width: 100% !important; max-height: 400px; cursor: crosshair; }
+  .scatter-empty { color: #999; font-style: italic; text-align: center; padding: 2rem; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: #fff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,.2); padding: 1.5rem; max-width: 480px; width: 90%; max-height: 80vh; overflow-y: auto; }
+  .modal h3 { font-size: 1rem; margin-bottom: 1rem; }
+  .modal table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  .modal td { padding: .35rem .5rem; border-bottom: 1px solid #eee; }
+  .modal td:first-child { font-weight: 600; color: #666; white-space: nowrap; width: 40%; }
+  .modal .close-btn { display: block; margin-top: 1rem; padding: .4rem 1rem; background: #e5e7eb; border: none; border-radius: 4px; cursor: pointer; font-size: .85rem; }
+  .modal .close-btn:hover { background: #d1d5db; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
@@ -102,6 +116,16 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 <div id="totals-container"></div>
 
 <div id="trend-container"></div>
+
+<div id="scatter-container"></div>
+
+<div class="modal-overlay" id="event-modal">
+  <div class="modal">
+    <h3>Event Details</h3>
+    <table id="event-detail-table"></table>
+    <button class="close-btn" id="modal-close">Close</button>
+  </div>
+</div>
 
 <div id="budget-container"></div>
 
@@ -419,9 +443,113 @@ function renderBudgetCard(label, period) {
   return html;
 }
 
+let scatterEvents = [];
+let scatterChart = null;
+
+async function loadScatter() {
+  const container = document.getElementById("scatter-container");
+  try {
+    const res = await fetch("/api/events/scatter");
+    const events = await res.json();
+    scatterEvents = events;
+    if (events.length === 0) {
+      container.innerHTML = '<div class="scatter-card"><h2>Latency vs Token Size</h2><p class="scatter-empty">No events recorded yet.</p></div>';
+      return;
+    }
+
+    const providerColors = {};
+    const palette = ["#2563eb","#dc2626","#16a34a","#ca8a04","#9333ea","#0891b2","#e11d48","#65a30d"];
+    let colorIdx = 0;
+    for (const e of events) {
+      if (!providerColors[e.provider]) {
+        providerColors[e.provider] = palette[colorIdx % palette.length];
+        colorIdx++;
+      }
+    }
+
+    const datasets = {};
+    for (const e of events) {
+      if (!datasets[e.provider]) {
+        datasets[e.provider] = {
+          label: e.provider,
+          data: [],
+          backgroundColor: providerColors[e.provider] + "99",
+          borderColor: providerColors[e.provider],
+          borderWidth: 1,
+          pointRadius: 5,
+          pointHoverRadius: 8,
+        };
+      }
+      datasets[e.provider].data.push({ x: e.total_tokens, y: e.latency_ms, _idx: events.indexOf(e) });
+    }
+
+    container.innerHTML = '<div class="scatter-card"><h2>Latency vs Token Size</h2><canvas id="scatter-canvas"></canvas></div>';
+    const ctx = document.getElementById("scatter-canvas").getContext("2d");
+    scatterChart = new Chart(ctx, {
+      type: "scatter",
+      data: { datasets: Object.values(datasets) },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const e = scatterEvents[context.raw._idx];
+                return e.model + ": " + e.total_tokens.toLocaleString() + " tokens, " + e.latency_ms.toLocaleString() + " ms";
+              }
+            }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: "Total Tokens" }, beginAtZero: true },
+          y: { title: { display: true, text: "Latency (ms)" }, beginAtZero: true }
+        },
+        onClick: function(evt, elements) {
+          if (elements.length === 0) return;
+          const el = elements[0];
+          const point = scatterChart.data.datasets[el.datasetIndex].data[el.index];
+          showEventDetail(scatterEvents[point._idx]);
+        }
+      }
+    });
+  } catch (err) {
+    container.innerHTML = '';
+  }
+}
+
+function showEventDetail(e) {
+  const modal = document.getElementById("event-modal");
+  const table = document.getElementById("event-detail-table");
+  const rows = [
+    ["ID", e.id],
+    ["Timestamp", e.timestamp],
+    ["Model", e.model],
+    ["Provider", e.provider],
+    ["Input Tokens", e.input_tokens.toLocaleString()],
+    ["Output Tokens", e.output_tokens.toLocaleString()],
+    ["Total Tokens", e.total_tokens.toLocaleString()],
+    ["Latency", e.latency_ms.toLocaleString() + " ms"],
+    ["Est. Cost", "$" + e.estimated_cost.toFixed(6)],
+    ["Prompt Hash", e.prompt_hash || "—"],
+    ["App Tag", e.app_tag || "—"],
+    ["Environment", e.env || "—"]
+  ];
+  table.innerHTML = rows.map(function(r) { return "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td></tr>"; }).join("");
+  modal.classList.add("open");
+}
+
+document.getElementById("modal-close").addEventListener("click", function() {
+  document.getElementById("event-modal").classList.remove("open");
+});
+document.getElementById("event-modal").addEventListener("click", function(e) {
+  if (e.target === this) this.classList.remove("open");
+});
+
 loadFilterOptions();
 loadTotals();
 loadTrend();
+loadScatter();
 loadBudget();
 loadSnapshots();
 </script>
@@ -646,6 +774,19 @@ export function createApp(dbPath?: string): express.Express {
       res.json(result);
     } catch (err) {
       res.status(404).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/events/scatter", (_req, res) => {
+    try {
+      const now = new Date();
+      const weekStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)
+      ).toISOString();
+      const events = queryEvents({ since: weekStart, limit: 500 }, dbPath);
+      res.json(events);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
