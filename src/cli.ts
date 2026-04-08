@@ -692,17 +692,20 @@ if (command === "dashboard") {
     allowPositionals: false,
     options: {
       port: { type: "string" },
+      "no-open": { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
 
   if (parsed.values.help) {
-    console.log(`Usage: toktrace dashboard [--port <number>]
+    console.log(`Usage: toktrace dashboard [--port <number>] [--no-open]
 
-Launch the snapshot comparison dashboard in your browser.
+Launch the TokTrace dashboard and open it in your browser.
+If the default port is in use, the next available port is tried automatically.
 
 Options:
-  --port <number>  Port to listen on (default: 4242)
+  --port <number>  Port to listen on (default: 4242, auto-increments if taken)
+  --no-open        Don't open the browser automatically
   -h, --help       Show this help message
 `);
     process.exit(0);
@@ -714,7 +717,7 @@ Options:
     process.exit(1);
   }
 
-  startDashboard({ port });
+  startDashboard({ port, open: !parsed.values["no-open"] });
   // Server keeps the process alive — no process.exit() here
 } else {
   console.error(`Unknown command: ${command}`);

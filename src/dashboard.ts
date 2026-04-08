@@ -1,6 +1,7 @@
 import express from "express";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exec } from "node:child_process";
 import { queryEvents, listSnapshots, queryAggregate, queryTrend } from "./store.js";
 import { compareSnapshots } from "./compare.js";
 import { loadConfig } from "./config.js";
@@ -352,6 +353,20 @@ loadSnapshots();
 export interface DashboardOptions {
   port?: number;
   dbPath?: string;
+  /** Set to false to suppress automatic browser opening. */
+  open?: boolean;
+}
+
+function openBrowser(url: string): void {
+  const cmd =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "start"
+        : "xdg-open";
+  exec(`${cmd} ${url}`, () => {
+    // Silently ignore errors — user can open the URL manually
+  });
 }
 
 export function createApp(dbPath?: string): express.Express {
@@ -516,11 +531,40 @@ export function createApp(dbPath?: string): express.Express {
 }
 
 export function startDashboard(opts: DashboardOptions = {}): void {
-  const port = opts.port ?? 4242;
+  const preferredPort = opts.port ?? 4242;
   const app = createApp(opts.dbPath);
+  const shouldOpen = opts.open !== false;
+  const maxRetries = opts.port != null ? 0 : 10;
 
-  app.listen(port, () => {
-    console.log(`TokTrace dashboard running at http://localhost:${port}`);
-    console.log("Press Ctrl+C to stop.");
-  });
+  function tryListen(port: number, attempt: number): void {
+    const server = app.listen(port);
+
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE" && attempt < maxRetries) {
+        const nextPort = port + 1;
+        console.error(`Port ${port} is in use, trying ${nextPort}…`);
+        server.close();
+        tryListen(nextPort, attempt + 1);
+      } else if (err.code === "EADDRINUSE") {
+        console.error(`Error: port ${port} is already in use.`);
+        if (opts.port != null) {
+          console.error("Choose a different port with --port <number>.");
+        }
+        process.exit(1);
+      } else {
+        throw err;
+      }
+    });
+
+    server.on("listening", () => {
+      const url = `http://localhost:${port}`;
+      console.log(`TokTrace dashboard running at ${url}`);
+      console.log("Press Ctrl+C to stop.");
+      if (shouldOpen) {
+        openBrowser(url);
+      }
+    });
+  }
+
+  tryListen(preferredPort, 0);
 }
