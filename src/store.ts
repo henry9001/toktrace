@@ -171,13 +171,42 @@ export interface AggregateTotals {
   }>;
 }
 
+export interface AggregateFilter {
+  since?: string;
+  until?: string;
+  model?: string;
+  appTag?: string;
+}
+
+function buildWhereClause(opts: AggregateFilter): { where: string; params: Record<string, string> } {
+  const conditions: string[] = [];
+  const params: Record<string, string> = {};
+  if (opts.since) {
+    conditions.push("timestamp >= @since");
+    params.since = opts.since;
+  }
+  if (opts.until) {
+    conditions.push("timestamp <= @until");
+    params.until = opts.until;
+  }
+  if (opts.model) {
+    conditions.push("model = @model");
+    params.model = opts.model;
+  }
+  if (opts.appTag) {
+    conditions.push("app_tag = @appTag");
+    params.appTag = opts.appTag;
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  return { where, params };
+}
+
 export function queryAggregate(
-  opts: { since?: string } = {},
+  opts: AggregateFilter = {},
   dbPath?: string
 ): AggregateTotals {
   const db = openDb(dbPath);
-  const where = opts.since ? "WHERE timestamp >= @since" : "";
-  const params = opts.since ? { since: opts.since } : {};
+  const { where, params } = buildWhereClause(opts);
 
   const totals = db
     .prepare(
@@ -281,6 +310,22 @@ export function queryTrend(
   }
 
   return result;
+}
+
+export function listDistinctModels(dbPath?: string): string[] {
+  const db = openDb(dbPath);
+  const rows = db.prepare("SELECT DISTINCT model FROM events ORDER BY model").all() as Array<{ model: string }>;
+  db.close();
+  return rows.map((r) => r.model);
+}
+
+export function listDistinctRoutes(dbPath?: string): string[] {
+  const db = openDb(dbPath);
+  const rows = db
+    .prepare("SELECT DISTINCT app_tag FROM events WHERE app_tag IS NOT NULL AND app_tag != '' ORDER BY app_tag")
+    .all() as Array<{ app_tag: string }>;
+  db.close();
+  return rows.map((r) => r.app_tag);
 }
 
 export function buildSummary(events: LLMEvent[]): SnapshotSummary {

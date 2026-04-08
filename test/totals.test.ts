@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { initStore, insertEvent, queryAggregate } from "../src/index.js";
+import { initStore, insertEvent, queryAggregate, listDistinctModels, listDistinctRoutes } from "../src/index.js";
 import type { LLMEvent } from "../src/index.js";
 
 function makeEvent(overrides: Partial<LLMEvent> & { id: string }): LLMEvent {
@@ -121,5 +121,64 @@ describe("TokTrace E2: Totals view", () => {
     // Query with no filter — should include all 3
     const all = queryAggregate({}, dbPath);
     assert.equal(all.event_count, 3, "all 3 events");
+  });
+
+  it("queryAggregate filters by model", () => {
+    const agg = queryAggregate({ model: "gpt-4o" }, dbPath);
+    assert.equal(agg.event_count, 2, "gpt-4o events (totals-001 + totals-003)");
+    assert.equal(agg.by_model.length, 1);
+    assert.equal(agg.by_model[0].model, "gpt-4o");
+  });
+
+  it("queryAggregate filters by appTag", () => {
+    insertEvent(
+      makeEvent({
+        id: "totals-004",
+        model: "gpt-4o",
+        app_tag: "/api/chat",
+        input_tokens: 50,
+        output_tokens: 25,
+        total_tokens: 75,
+        estimated_cost: 0.001,
+      }),
+      dbPath
+    );
+
+    const agg = queryAggregate({ appTag: "/api/chat" }, dbPath);
+    assert.equal(agg.event_count, 1);
+    assert.equal(agg.total_tokens, 75);
+  });
+
+  it("queryAggregate filters by model + appTag combined", () => {
+    insertEvent(
+      makeEvent({
+        id: "totals-005",
+        model: "claude-sonnet-4-6",
+        provider: "anthropic",
+        app_tag: "/api/chat",
+        input_tokens: 80,
+        output_tokens: 40,
+        total_tokens: 120,
+        estimated_cost: 0.002,
+      }),
+      dbPath
+    );
+
+    const agg = queryAggregate({ model: "claude-sonnet-4-6", appTag: "/api/chat" }, dbPath);
+    assert.equal(agg.event_count, 1, "only the claude event with /api/chat");
+    assert.equal(agg.total_tokens, 120);
+  });
+
+  it("listDistinctModels returns sorted unique models", () => {
+    const models = listDistinctModels(dbPath);
+    assert.ok(models.includes("gpt-4o"));
+    assert.ok(models.includes("claude-sonnet-4-6"));
+    assert.equal(models.length, 2);
+  });
+
+  it("listDistinctRoutes returns sorted unique non-null app_tags", () => {
+    const routes = listDistinctRoutes(dbPath);
+    assert.ok(routes.includes("/api/chat"));
+    assert.equal(routes.length, 1, "only one distinct non-null route");
   });
 });

@@ -2,7 +2,7 @@ import express from "express";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
-import { queryEvents, listSnapshots, queryAggregate, queryTrend } from "./store.js";
+import { queryEvents, listSnapshots, queryAggregate, queryTrend, listDistinctModels, listDistinctRoutes } from "./store.js";
 import { compareSnapshots } from "./compare.js";
 import { loadConfig } from "./config.js";
 import { openBudgetDb, getPeriodTotals } from "./budget.js";
@@ -65,11 +65,39 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .trend-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 2rem; }
   .trend-card h2 { font-size: 1.1rem; margin-bottom: 1rem; }
   .trend-card canvas { width: 100% !important; max-height: 300px; }
+  .filter-bar { display: flex; gap: 1rem; align-items: end; margin-bottom: 2rem; flex-wrap: wrap; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1rem 1.5rem; }
+  .filter-bar label { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; font-weight: 600; color: #666; text-transform: uppercase; }
+  .filter-bar select, .filter-bar input { padding: .4rem .6rem; border: 1px solid #ccc; border-radius: 4px; font-size: .85rem; min-width: 160px; }
+  .filter-bar .custom-range { display: none; gap: .5rem; align-items: center; font-size: .85rem; }
+  .filter-bar .custom-range.visible { display: flex; }
+  .filter-bar .custom-range input[type="date"] { min-width: 130px; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <h1>TokTrace &mdash; Snapshot Comparison</h1>
+
+<div class="filter-bar">
+  <label>Model
+    <select id="filter-model"><option value="">All models</option></select>
+  </label>
+  <label>Route / Endpoint
+    <select id="filter-route"><option value="">All routes</option></select>
+  </label>
+  <label>Time Window
+    <select id="filter-time">
+      <option value="today">Today</option>
+      <option value="7d" selected>Last 7 days</option>
+      <option value="30d">Last 30 days</option>
+      <option value="custom">Custom range</option>
+    </select>
+  </label>
+  <div id="custom-range" class="custom-range">
+    <input type="date" id="filter-from" title="From date">
+    <span>&mdash;</span>
+    <input type="date" id="filter-to" title="To date">
+  </div>
+</div>
 
 <div id="totals-container"></div>
 
@@ -94,6 +122,50 @@ const selA = document.getElementById("sel-a");
 const selB = document.getElementById("sel-b");
 const btn = document.getElementById("btn-compare");
 const results = document.getElementById("results");
+const filterModel = document.getElementById("filter-model");
+const filterRoute = document.getElementById("filter-route");
+const filterTime = document.getElementById("filter-time");
+const customRange = document.getElementById("custom-range");
+const filterFrom = document.getElementById("filter-from");
+const filterTo = document.getElementById("filter-to");
+
+function getFilterParams() {
+  const params = new URLSearchParams();
+  if (filterModel.value) params.set("model", filterModel.value);
+  if (filterRoute.value) params.set("route", filterRoute.value);
+  const tw = filterTime.value;
+  if (tw === "custom") {
+    if (filterFrom.value) params.set("since", filterFrom.value + "T00:00:00.000Z");
+    if (filterTo.value) params.set("until", filterTo.value + "T23:59:59.999Z");
+  }
+  // time window presets are handled server-side via the "window" param
+  if (tw !== "custom") params.set("window", tw);
+  return params;
+}
+
+function onFilterChange() {
+  customRange.classList.toggle("visible", filterTime.value === "custom");
+  loadTotals();
+}
+
+filterModel.addEventListener("change", onFilterChange);
+filterRoute.addEventListener("change", onFilterChange);
+filterTime.addEventListener("change", onFilterChange);
+filterFrom.addEventListener("change", onFilterChange);
+filterTo.addEventListener("change", onFilterChange);
+
+async function loadFilterOptions() {
+  try {
+    const [modelsRes, routesRes] = await Promise.all([
+      fetch("/api/models"),
+      fetch("/api/routes"),
+    ]);
+    const models = await modelsRes.json();
+    const routes = await routesRes.json();
+    filterModel.innerHTML = '<option value="">All models</option>' + models.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join("");
+    filterRoute.innerHTML = '<option value="">All routes</option>' + routes.map(function(r) { return '<option value="' + r + '">' + r + '</option>'; }).join("");
+  } catch (e) { /* filter options unavailable — keep defaults */ }
+}
 
 async function loadSnapshots() {
   const res = await fetch("/api/snapshots");
@@ -185,15 +257,20 @@ function row(label, d, prefix, decimals) {
 async function loadTotals() {
   const container = document.getElementById("totals-container");
   try {
-    const res = await fetch("/api/totals");
+    const fp = getFilterParams();
+    const qs = fp.toString();
+    const res = await fetch("/api/totals" + (qs ? "?" + qs : ""));
     const data = await res.json();
     if (data.today.event_count === 0 && data.week.event_count === 0) {
       container.innerHTML = '<div class="totals-empty">No events recorded yet.</div>';
       return;
     }
+    const periodLabel = data.period_label || "Last 7 Days";
     let html = '<div class="totals-widget">';
     html += renderTotalsCard("Today", data.today);
-    html += renderTotalsCard("Last 7 Days", data.week);
+    if (periodLabel !== "Today") {
+      html += renderTotalsCard(periodLabel, data.week);
+    }
     html += '</div>';
     container.innerHTML = html;
   } catch (err) {
@@ -342,6 +419,7 @@ function renderBudgetCard(label, period) {
   return html;
 }
 
+loadFilterOptions();
 loadTotals();
 loadTrend();
 loadBudget();
@@ -402,6 +480,24 @@ export function createApp(dbPath?: string): express.Express {
     }
   });
 
+  app.get("/api/models", (_req, res) => {
+    try {
+      const models = listDistinctModels(dbPath);
+      res.json(models);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/routes", (_req, res) => {
+    try {
+      const routes = listDistinctRoutes(dbPath);
+      res.json(routes);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   app.get("/api/budget-status", (_req, res) => {
     try {
       const config = loadConfig();
@@ -442,18 +538,43 @@ export function createApp(dbPath?: string): express.Express {
     }
   });
 
-  app.get("/api/totals", (_req, res) => {
+  app.get("/api/totals", (req, res) => {
     try {
       const now = new Date();
-      const todayStart = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-      ).toISOString();
-      const weekStart = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)
-      ).toISOString();
+      const model = typeof req.query.model === "string" ? req.query.model : undefined;
+      const appTag = typeof req.query.route === "string" ? req.query.route : undefined;
+      const window = typeof req.query.window === "string" ? req.query.window : "7d";
+      const customSince = typeof req.query.since === "string" ? req.query.since : undefined;
+      const customUntil = typeof req.query.until === "string" ? req.query.until : undefined;
 
-      const todayAgg = queryAggregate({ since: todayStart }, dbPath);
-      const weekAgg = queryAggregate({ since: weekStart }, dbPath);
+      let todaySince: string;
+      let periodSince: string;
+      let periodLabel: string;
+      let periodUntil: string | undefined;
+
+      if (window === "custom" || customSince) {
+        todaySince = customSince ?? new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+        ).toISOString();
+        periodSince = todaySince;
+        periodLabel = "Custom Range";
+        periodUntil = customUntil;
+      } else {
+        todaySince = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+        ).toISOString();
+        const days = window === "30d" ? 29 : window === "today" ? 0 : 6;
+        periodSince = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days)
+        ).toISOString();
+        periodLabel = window === "30d" ? "Last 30 Days" : window === "today" ? "Today" : "Last 7 Days";
+      }
+
+      const baseFilter = { model, appTag };
+      const todayAgg = queryAggregate({ ...baseFilter, since: todaySince, until: customUntil }, dbPath);
+      const periodAgg = window === "today"
+        ? todayAgg
+        : queryAggregate({ ...baseFilter, since: periodSince, until: periodUntil }, dbPath);
 
       const pricing = getPricingTable();
       const prefixKeys = Object.keys(pricing).sort((a, b) => b.length - a.length);
@@ -494,7 +615,8 @@ export function createApp(dbPath?: string): express.Express {
 
       res.json({
         today: formatPeriod(todayAgg),
-        week: formatPeriod(weekAgg),
+        week: formatPeriod(periodAgg),
+        period_label: periodLabel,
       });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
