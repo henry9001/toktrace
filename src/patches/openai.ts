@@ -77,7 +77,7 @@ export function apply(options: TokTraceOptions): boolean {
         env: process.env.NODE_ENV ?? null,
       };
 
-      insertEvent(event, options.dbPath);
+      insertEvent(event, options.dbPath, { messages, body });
       return response;
     });
   };

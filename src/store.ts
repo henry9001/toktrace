@@ -4,6 +4,8 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { BudgetAlert, LLMEvent, Snapshot, SnapshotSummary } from "./types.js";
 import { budgetCheck, initBudgetSchema } from "./budget.js";
+import { checkRules, initRulesSchema } from "./rules.js";
+import type { RuleViolation } from "./rules.js";
 
 function defaultDbPath(): string {
   const dir = join(homedir(), ".toktrace");
@@ -55,6 +57,7 @@ function applyMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_snapshots_captured_at ON snapshots(captured_at);
   `);
   initBudgetSchema(db);
+  initRulesSchema(db);
 }
 
 export function initStore(dbPath?: string): void {
@@ -62,7 +65,17 @@ export function initStore(dbPath?: string): void {
   db.close();
 }
 
-export function insertEvent(event: LLMEvent, dbPath?: string): BudgetAlert[] {
+/** Optional metadata passed from SDK patches to enable rule checks. */
+export interface EventMetadata {
+  messages?: unknown[];
+  body?: Record<string, unknown>;
+}
+
+export function insertEvent(
+  event: LLMEvent,
+  dbPath?: string,
+  metadata?: EventMetadata
+): BudgetAlert[] {
   const db = openDb(dbPath);
   db.prepare(`
     INSERT OR REPLACE INTO events
@@ -73,6 +86,9 @@ export function insertEvent(event: LLMEvent, dbPath?: string): BudgetAlert[] {
        @estimated_cost, @latency_ms, @prompt_hash, @app_tag, @env)
   `).run(event);
   const alerts = budgetCheck(db, event);
+  if (metadata) {
+    checkRules(db, event, metadata.messages, metadata.body);
+  }
   db.close();
   return alerts;
 }

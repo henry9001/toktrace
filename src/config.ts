@@ -19,9 +19,18 @@ export interface AlertsConfig {
   cli?: boolean;
 }
 
+export interface RulesConfig {
+  /** Set to false to disable all rule checks. Defaults to true. */
+  enabled?: boolean;
+  /** Token threshold for the overlong system prompt rule. Defaults to 1000. */
+  overlong_system_prompt_tokens?: number;
+}
+
 export interface TokTraceConfig {
   budget?: BudgetConfig;
   alerts?: AlertsConfig;
+  /** Configuration for optimization rules (e.g. overlong system prompt detection). */
+  rules?: RulesConfig;
   /** Proxy targets for generic HTTP interception of unsupported providers. */
   proxy_targets?: ProxyTarget[];
 }

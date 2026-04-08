@@ -120,7 +120,10 @@ export function apply(options: TokTraceOptions): boolean {
           env: process.env.NODE_ENV ?? null,
         };
 
-        insertEvent(event, options.dbPath);
+        insertEvent(event, options.dbPath, {
+          messages,
+          body: reqBody ?? undefined,
+        });
       }).catch(() => {
         // Response wasn't JSON — not an LLM call, silently skip
       });

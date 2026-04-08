@@ -2,7 +2,7 @@ export { init } from "./init.js";
 export { estimateCost, getPricingTable, listPricing } from "./pricing.js";
 export type { ModelPricing, PricingEntry } from "./pricing.js";
 export type { TokTraceOptions, LLMEvent, ProxyTarget, Snapshot, SnapshotSummary, SnapshotComparison, DeltaValue, TopSpenderDelta, AlertLevel, BudgetMetric, BudgetAlert, SuggestionCard } from "./types.js";
-export type { BudgetConfig, AlertsConfig, TokTraceConfig } from "./config.js";
+export type { BudgetConfig, AlertsConfig, RulesConfig, TokTraceConfig } from "./config.js";
 export { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 export type { PeriodType, PeriodTotals } from "./budget.js";
 export {
@@ -16,8 +16,10 @@ export {
   getUndeliveredAlerts,
   markAlertDelivered,
 } from "./budget.js";
-export type { AggregateTotals, TrendPoint, AggregateFilter } from "./store.js";
+export type { AggregateTotals, TrendPoint, AggregateFilter, EventMetadata } from "./store.js";
 export { initStore, insertEvent, queryEvents, queryAggregate, queryTrend, listDistinctModels, listDistinctRoutes, insertSnapshot, listSnapshots, getSnapshot, getSnapshotByName, buildSummary } from "./store.js";
+export type { RuleViolation } from "./rules.js";
+export { estimateTokenCount, extractSystemPromptText, checkOverlongSystemPrompt, checkRules, queryViolations, initRulesSchema } from "./rules.js";
 export { createSnapshot } from "./snapshot.js";
 export { compareSnapshots } from "./compare.js";
 export { exportSnapshot } from "./export.js";
