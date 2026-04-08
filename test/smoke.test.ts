@@ -48,6 +48,8 @@ describe("TokTrace E1 smoke test", () => {
       prompt_hash: "abcd1234abcd1234",
       app_tag: null,
       env: "test",
+      tool_calls: null,
+      context_size_tokens: 150,
       tool_call_count: 0,
     };
 
@@ -82,6 +84,8 @@ describe("TokTrace E1 smoke test", () => {
       prompt_hash: null,
       app_tag: null,
       env: "test",
+      tool_calls: null,
+      context_size_tokens: 500,
       tool_call_count: 0,
     };
 
@@ -98,7 +102,9 @@ describe("TokTrace E1 smoke test", () => {
       prompt_hash: null,
       app_tag: null,
       env: "test",
-      tool_call_count: 0,
+      tool_calls: JSON.stringify([{ type: "tool_use", name: "search", id: "tc_1" }]),
+      context_size_tokens: 300,
+      tool_call_count: 1,
     };
 
     insertEvent(event1, dbPath);

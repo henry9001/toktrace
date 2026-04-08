@@ -59,11 +59,10 @@ export function apply(options: TokTraceOptions): boolean {
       const model = (response.model as string) ?? (body.model as string) ?? "unknown";
       const messages = body.messages as unknown[] | undefined;
 
-      // Count tool_use blocks in the response content
-      const content = response.content as Array<Record<string, unknown>> | undefined;
-      const toolCallCount = Array.isArray(content)
-        ? content.filter((b) => b.type === "tool_use").length
-        : 0;
+      // Extract tool_use blocks from Anthropic response content
+      const contentBlocks = response.content as Array<Record<string, unknown>> | undefined;
+      const toolUseBlocks = contentBlocks?.filter((b) => b.type === "tool_use") ?? [];
+      const toolCallsJson = toolUseBlocks.length > 0 ? JSON.stringify(toolUseBlocks) : null;
 
       const event: LLMEvent = {
         id: randomUUID(),
@@ -80,7 +79,9 @@ export function apply(options: TokTraceOptions): boolean {
           : null,
         app_tag: null,
         env: process.env.NODE_ENV ?? null,
-        tool_call_count: toolCallCount,
+        tool_calls: toolCallsJson,
+        context_size_tokens: inputTokens,
+        tool_call_count: toolUseBlocks.length,
       };
 
       insertEvent(event, options.dbPath, { messages, body });

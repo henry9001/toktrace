@@ -38,6 +38,11 @@ export interface LLMEvent {
   prompt_hash: string | null;
   app_tag: string | null;
   env: string | null;
+  /** JSON-serialized array of tool calls made during this LLM invocation. */
+  tool_calls: string | null;
+  /** Total context size in tokens (input + any cached/system context). */
+  context_size_tokens: number;
+  /** Number of tool calls in this invocation. */
   tool_call_count: number;
 }
 

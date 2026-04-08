@@ -118,6 +118,8 @@ export function apply(options: TokTraceOptions): boolean {
             : null,
           app_tag: null,
           env: process.env.NODE_ENV ?? null,
+          tool_calls: null,
+          context_size_tokens: inputTokens,
           tool_call_count: 0,
         };
 

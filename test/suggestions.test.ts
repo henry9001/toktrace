@@ -18,6 +18,8 @@ function makeEvent(overrides: Partial<LLMEvent> = {}): LLMEvent {
     prompt_hash: null,
     app_tag: null,
     env: "test",
+    tool_calls: null,
+    context_size_tokens: 100,
     tool_call_count: 0,
     ...overrides,
   };

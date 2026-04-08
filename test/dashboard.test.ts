@@ -33,6 +33,8 @@ describe("TokTrace E2 dashboard HTTP server", () => {
       prompt_hash: null,
       app_tag: null,
       env: "test",
+      tool_calls: null,
+      context_size_tokens: 100,
       tool_call_count: 0,
     };
     insertEvent(event, dbPath);
@@ -87,6 +89,8 @@ describe("TokTrace E2 dashboard HTTP server", () => {
       prompt_hash: null,
       app_tag: null,
       env: "test",
+      tool_calls: null,
+      context_size_tokens: 200,
       tool_call_count: 0,
     }, dbPath);
 

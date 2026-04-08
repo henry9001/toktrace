@@ -60,11 +60,11 @@ export function apply(options: TokTraceOptions): boolean {
       const model = (response.model as string) ?? (body.model as string) ?? "unknown";
       const messages = body.messages as unknown[] | undefined;
 
-      // Count tool_calls in the first choice's message
+      // Extract tool_calls from OpenAI response choices
       const choices = response.choices as Array<Record<string, unknown>> | undefined;
-      const firstMsg = choices?.[0]?.message as Record<string, unknown> | undefined;
-      const toolCalls = firstMsg?.tool_calls as unknown[] | undefined;
-      const toolCallCount = Array.isArray(toolCalls) ? toolCalls.length : 0;
+      const firstMessage = choices?.[0]?.message as Record<string, unknown> | undefined;
+      const rawToolCalls = firstMessage?.tool_calls as Array<Record<string, unknown>> | undefined;
+      const toolCallsJson = rawToolCalls && rawToolCalls.length > 0 ? JSON.stringify(rawToolCalls) : null;
 
       const event: LLMEvent = {
         id: randomUUID(),
@@ -81,7 +81,9 @@ export function apply(options: TokTraceOptions): boolean {
           : null,
         app_tag: null,
         env: process.env.NODE_ENV ?? null,
-        tool_call_count: toolCallCount,
+        tool_calls: toolCallsJson,
+        context_size_tokens: inputTokens,
+        tool_call_count: rawToolCalls?.length ?? 0,
       };
 
       insertEvent(event, options.dbPath, { messages, body });
