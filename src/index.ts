@@ -22,6 +22,6 @@ export { createSnapshot } from "./snapshot.js";
 export { compareSnapshots } from "./compare.js";
 export { exportSnapshot } from "./export.js";
 export type { ExportOptions, ExportResult } from "./export.js";
-export { startDashboard } from "./dashboard.js";
+export { createApp, startDashboard } from "./dashboard.js";
 export type { DashboardOptions } from "./dashboard.js";
 export { formatAlertMessage, sendDesktopNotification, printCliWarning, deliverAlert, deliverPendingAlerts } from "./alerts.js";

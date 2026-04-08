@@ -702,7 +702,7 @@ if (command === "dashboard") {
 Launch the snapshot comparison dashboard in your browser.
 
 Options:
-  --port <number>  Port to listen on (default: 3000)
+  --port <number>  Port to listen on (default: 4242)
   -h, --help       Show this help message
 `);
     process.exit(0);

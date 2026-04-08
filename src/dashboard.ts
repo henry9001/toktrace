@@ -1,6 +1,5 @@
-import { createServer } from "node:http";
-import { URL } from "node:url";
-import { listSnapshots, queryAggregate } from "./store.js";
+import express from "express";
+import { queryEvents, listSnapshots, queryAggregate } from "./store.js";
 import { compareSnapshots } from "./compare.js";
 import { loadConfig } from "./config.js";
 import { openBudgetDb, getPeriodTotals } from "./budget.js";
@@ -267,164 +266,157 @@ export interface DashboardOptions {
   dbPath?: string;
 }
 
-export function startDashboard(opts: DashboardOptions = {}): void {
-  const port = opts.port ?? 3000;
-  const dbPath = opts.dbPath;
+export function createApp(dbPath?: string): express.Express {
+  const app = express();
 
-  const server = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-
-    if (url.pathname === "/" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(DASHBOARD_HTML);
-      return;
-    }
-
-    if (url.pathname === "/api/snapshots" && req.method === "GET") {
-      try {
-        const snapshots = listSnapshots(dbPath);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(snapshots));
-      } catch (err) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
-      return;
-    }
-
-    if (url.pathname === "/api/budget-status" && req.method === "GET") {
-      try {
-        const config = loadConfig();
-        const budget = config.budget;
-        if (!budget || (!budget.daily_cost_limit && !budget.weekly_cost_limit && !budget.daily_token_limit && !budget.weekly_token_limit)) {
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ configured: false }));
-          return;
-        }
-
-        const db = openBudgetDb(dbPath);
-        const dailyTotals = getPeriodTotals(db, "daily");
-        const weeklyTotals = getPeriodTotals(db, "weekly");
-        db.close();
-
-        const result: Record<string, unknown> = { configured: true };
-
-        if (budget.daily_cost_limit != null || budget.daily_token_limit != null) {
-          result.daily = {
-            cost_used: dailyTotals?.cost_usd ?? 0,
-            cost_limit: budget.daily_cost_limit ?? null,
-            tokens_used: dailyTotals?.tokens ?? 0,
-            token_limit: budget.daily_token_limit ?? null,
-          };
-        }
-
-        if (budget.weekly_cost_limit != null || budget.weekly_token_limit != null) {
-          result.weekly = {
-            cost_used: weeklyTotals?.cost_usd ?? 0,
-            cost_limit: budget.weekly_cost_limit ?? null,
-            tokens_used: weeklyTotals?.tokens ?? 0,
-            token_limit: budget.weekly_token_limit ?? null,
-          };
-        }
-
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(result));
-      } catch (err) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
-      return;
-    }
-
-    if (url.pathname === "/api/totals" && req.method === "GET") {
-      try {
-        const now = new Date();
-        const todayStart = new Date(
-          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-        ).toISOString();
-        const weekStart = new Date(
-          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)
-        ).toISOString();
-
-        const todayAgg = queryAggregate({ since: todayStart }, dbPath);
-        const weekAgg = queryAggregate({ since: weekStart }, dbPath);
-
-        const pricing = getPricingTable();
-        const prefixKeys = Object.keys(pricing).sort((a, b) => b.length - a.length);
-
-        function costSplit(byModel: typeof todayAgg.by_model) {
-          let inputCost = 0;
-          let outputCost = 0;
-          for (const m of byModel) {
-            const key = prefixKeys.find((k) => m.model.startsWith(k));
-            const rates = pricing[m.model] ?? (key ? pricing[key] : undefined);
-            if (rates) {
-              inputCost += rates.input * m.input_tokens;
-              outputCost += rates.output * m.output_tokens;
-            } else {
-              // Unknown model — attribute full cost proportionally
-              const total = m.input_tokens + m.output_tokens;
-              if (total > 0) {
-                inputCost += m.estimated_cost * (m.input_tokens / total);
-                outputCost += m.estimated_cost * (m.output_tokens / total);
-              }
-            }
-          }
-          return { input_cost: inputCost, output_cost: outputCost };
-        }
-
-        function formatPeriod(agg: typeof todayAgg) {
-          const split = costSplit(agg.by_model);
-          return {
-            input_tokens: agg.input_tokens,
-            output_tokens: agg.output_tokens,
-            total_tokens: agg.total_tokens,
-            estimated_cost: agg.estimated_cost,
-            input_cost: split.input_cost,
-            output_cost: split.output_cost,
-            event_count: agg.event_count,
-            top_models: agg.by_model.slice(0, 5),
-          };
-        }
-
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            today: formatPeriod(todayAgg),
-            week: formatPeriod(weekAgg),
-          })
-        );
-      } catch (err) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
-      return;
-    }
-
-    if (url.pathname === "/api/snapshots/compare" && req.method === "GET") {
-      const a = url.searchParams.get("a");
-      const b = url.searchParams.get("b");
-      if (!a || !b) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Both query params 'a' and 'b' are required" }));
-        return;
-      }
-      try {
-        const result = compareSnapshots(a, b, dbPath);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(result));
-      } catch (err) {
-        res.writeHead(404, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: (err as Error).message }));
-      }
-      return;
-    }
-
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Not found" }));
+  app.get("/", (_req, res) => {
+    res.type("html").send(DASHBOARD_HTML);
   });
 
-  server.listen(port, () => {
+  app.get("/api/events", (req, res) => {
+    try {
+      const since = typeof req.query.since === "string" ? req.query.since : undefined;
+      const until = typeof req.query.until === "string" ? req.query.until : undefined;
+      const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+      const limit = limitRaw != null && Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : undefined;
+      const events = queryEvents({ since, until, limit }, dbPath);
+      res.json(events);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/snapshots", (_req, res) => {
+    try {
+      const snapshots = listSnapshots(dbPath);
+      res.json(snapshots);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/budget-status", (_req, res) => {
+    try {
+      const config = loadConfig();
+      const budget = config.budget;
+      if (!budget || (!budget.daily_cost_limit && !budget.weekly_cost_limit && !budget.daily_token_limit && !budget.weekly_token_limit)) {
+        res.json({ configured: false });
+        return;
+      }
+
+      const db = openBudgetDb(dbPath);
+      const dailyTotals = getPeriodTotals(db, "daily");
+      const weeklyTotals = getPeriodTotals(db, "weekly");
+      db.close();
+
+      const result: Record<string, unknown> = { configured: true };
+
+      if (budget.daily_cost_limit != null || budget.daily_token_limit != null) {
+        result.daily = {
+          cost_used: dailyTotals?.cost_usd ?? 0,
+          cost_limit: budget.daily_cost_limit ?? null,
+          tokens_used: dailyTotals?.tokens ?? 0,
+          token_limit: budget.daily_token_limit ?? null,
+        };
+      }
+
+      if (budget.weekly_cost_limit != null || budget.weekly_token_limit != null) {
+        result.weekly = {
+          cost_used: weeklyTotals?.cost_usd ?? 0,
+          cost_limit: budget.weekly_cost_limit ?? null,
+          tokens_used: weeklyTotals?.tokens ?? 0,
+          token_limit: budget.weekly_token_limit ?? null,
+        };
+      }
+
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/totals", (_req, res) => {
+    try {
+      const now = new Date();
+      const todayStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+      ).toISOString();
+      const weekStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)
+      ).toISOString();
+
+      const todayAgg = queryAggregate({ since: todayStart }, dbPath);
+      const weekAgg = queryAggregate({ since: weekStart }, dbPath);
+
+      const pricing = getPricingTable();
+      const prefixKeys = Object.keys(pricing).sort((a, b) => b.length - a.length);
+
+      function costSplit(byModel: typeof todayAgg.by_model) {
+        let inputCost = 0;
+        let outputCost = 0;
+        for (const m of byModel) {
+          const key = prefixKeys.find((k) => m.model.startsWith(k));
+          const rates = pricing[m.model] ?? (key ? pricing[key] : undefined);
+          if (rates) {
+            inputCost += rates.input * m.input_tokens;
+            outputCost += rates.output * m.output_tokens;
+          } else {
+            const total = m.input_tokens + m.output_tokens;
+            if (total > 0) {
+              inputCost += m.estimated_cost * (m.input_tokens / total);
+              outputCost += m.estimated_cost * (m.output_tokens / total);
+            }
+          }
+        }
+        return { input_cost: inputCost, output_cost: outputCost };
+      }
+
+      function formatPeriod(agg: typeof todayAgg) {
+        const split = costSplit(agg.by_model);
+        return {
+          input_tokens: agg.input_tokens,
+          output_tokens: agg.output_tokens,
+          total_tokens: agg.total_tokens,
+          estimated_cost: agg.estimated_cost,
+          input_cost: split.input_cost,
+          output_cost: split.output_cost,
+          event_count: agg.event_count,
+          top_models: agg.by_model.slice(0, 5),
+        };
+      }
+
+      res.json({
+        today: formatPeriod(todayAgg),
+        week: formatPeriod(weekAgg),
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/snapshots/compare", (req, res) => {
+    const a = typeof req.query.a === "string" ? req.query.a : null;
+    const b = typeof req.query.b === "string" ? req.query.b : null;
+    if (!a || !b) {
+      res.status(400).json({ error: "Both query params 'a' and 'b' are required" });
+      return;
+    }
+    try {
+      const result = compareSnapshots(a, b, dbPath);
+      res.json(result);
+    } catch (err) {
+      res.status(404).json({ error: (err as Error).message });
+    }
+  });
+
+  return app;
+}
+
+export function startDashboard(opts: DashboardOptions = {}): void {
+  const port = opts.port ?? 4242;
+  const app = createApp(opts.dbPath);
+
+  app.listen(port, () => {
     console.log(`TokTrace dashboard running at http://localhost:${port}`);
     console.log("Press Ctrl+C to stop.");
   });
