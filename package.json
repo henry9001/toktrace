@@ -30,6 +30,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "build:sea": "npm run build && bash scripts/build-sea.sh",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "test": "npx tsx --test test/**/*.test.ts",

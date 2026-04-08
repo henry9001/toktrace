@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 import type { AlertsConfig, BudgetConfig } from "./config.js";
@@ -11,6 +12,14 @@ import { startDashboard } from "./dashboard.js";
 import { deliverPendingAlerts } from "./alerts.js";
 import { openBudgetDb } from "./budget.js";
 import { listPricing } from "./pricing.js";
+
+function readVersion(): string {
+  const here = typeof __filename !== "undefined"
+    ? __filename
+    : fileURLToPath(import.meta.url);
+  const pkgPath = join(dirname(here), "../package.json");
+  return JSON.parse(readFileSync(pkgPath, "utf-8")).version;
+}
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -25,8 +34,7 @@ const command = positionals[0];
 
 // Top-level --version
 if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
-  const { default: pkg } = await import("../package.json", { with: { type: "json" } });
-  console.log((pkg as { version: string }).version);
+  console.log(readVersion());
   process.exit(0);
 }
 
@@ -580,20 +588,19 @@ Options:
       process.exit(1);
     }
 
-    try {
-      const result = await exportSnapshot({
-        name,
-        outDir: parsed.values.output,
-      });
+    exportSnapshot({
+      name,
+      outDir: parsed.values.output,
+    }).then((result) => {
       console.log(`Snapshot exported: ${result.zipPath}`);
       console.log(`  Name:      ${result.snapshot.name}`);
       console.log(`  Events:    ${result.snapshot.summary.event_count}`);
       console.log(`  Contains:  snapshot.json, report.md, metadata.json`);
-    } catch (err) {
+      process.exit(0);
+    }).catch((err) => {
       console.error(`Error: ${(err as Error).message}`);
       process.exit(1);
-    }
-    process.exit(0);
+    });
   }
 
   if (subcommand === "compare") {

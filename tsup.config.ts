@@ -18,4 +18,13 @@ export default defineConfig([
       js: "#!/usr/bin/env node",
     },
   },
+  {
+    entry: { "cli-sea": "src/cli.ts" },
+    format: ["cjs"],
+    dts: false,
+    clean: false,
+    sourcemap: false,
+    splitting: false,
+    noExternal: [/.*/],
+  },
 ]);

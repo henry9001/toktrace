@@ -8,5 +8,8 @@ dist/
 .beads/
 CLAUDE.md
 
+# SEA build artifacts
+*.blob
+
 # Gas Town (added by gt)
 CLAUDE.local.md
