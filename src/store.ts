@@ -156,6 +156,71 @@ function deserializeSnapshot(row: Record<string, unknown>): Snapshot {
   };
 }
 
+export interface AggregateTotals {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  estimated_cost: number;
+  event_count: number;
+  by_model: Array<{
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    estimated_cost: number;
+    event_count: number;
+  }>;
+}
+
+export function queryAggregate(
+  opts: { since?: string } = {},
+  dbPath?: string
+): AggregateTotals {
+  const db = openDb(dbPath);
+  const where = opts.since ? "WHERE timestamp >= @since" : "";
+  const params = opts.since ? { since: opts.since } : {};
+
+  const totals = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+         COALESCE(SUM(output_tokens), 0) AS output_tokens,
+         COALESCE(SUM(total_tokens), 0)  AS total_tokens,
+         COALESCE(SUM(estimated_cost), 0) AS estimated_cost,
+         COUNT(*) AS event_count
+       FROM events ${where}`
+    )
+    .get(params) as {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    estimated_cost: number;
+    event_count: number;
+  };
+
+  const byModel = db
+    .prepare(
+      `SELECT
+         model,
+         SUM(input_tokens)  AS input_tokens,
+         SUM(output_tokens) AS output_tokens,
+         SUM(estimated_cost) AS estimated_cost,
+         COUNT(*) AS event_count
+       FROM events ${where}
+       GROUP BY model
+       ORDER BY SUM(estimated_cost) DESC`
+    )
+    .all(params) as Array<{
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    estimated_cost: number;
+    event_count: number;
+  }>;
+
+  db.close();
+  return { ...totals, by_model: byModel };
+}
+
 export function buildSummary(events: LLMEvent[]): SnapshotSummary {
   const totals = events.reduce(
     (acc, e) => {

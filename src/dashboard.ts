@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
-import { listSnapshots } from "./store.js";
+import { listSnapshots, queryAggregate } from "./store.js";
 import { compareSnapshots } from "./compare.js";
 import { loadConfig } from "./config.js";
 import { openBudgetDb, getPeriodTotals } from "./budget.js";
+import { getPricingTable } from "./pricing.js";
 
 const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -47,10 +48,21 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .budget-bar-fill.red { background: #dc2626; }
   .budget-no-config { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 2rem; color: #666; font-size: .9rem; }
   .budget-no-config code { background: #f1f5f9; padding: .2rem .5rem; border-radius: 4px; font-size: .85rem; }
+  .totals-widget { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; }
+  .totals-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.5rem; }
+  .totals-card h3 { font-size: .85rem; font-weight: 600; text-transform: uppercase; color: #666; margin-bottom: 1rem; }
+  .totals-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+  .totals-stat { display: flex; flex-direction: column; }
+  .totals-stat .label { font-size: .75rem; color: #999; text-transform: uppercase; }
+  .totals-stat .value { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .totals-stat .breakdown { font-size: .75rem; color: #666; margin-top: .15rem; }
+  .totals-empty { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 2rem; color: #999; font-size: .9rem; font-style: italic; text-align: center; }
 </style>
 </head>
 <body>
 <h1>TokTrace &mdash; Snapshot Comparison</h1>
+
+<div id="totals-container"></div>
 
 <div id="budget-container"></div>
 
@@ -159,6 +171,45 @@ function row(label, d, prefix, decimals) {
   return '<tr><td>' + label + '</td><td class="num">' + prefix + fmtNum(d.before, decimals) + '</td><td class="num">' + prefix + fmtNum(d.after, decimals) + '</td><td class="num">' + fmtDelta(d, prefix, decimals) + '</td></tr>';
 }
 
+async function loadTotals() {
+  const container = document.getElementById("totals-container");
+  try {
+    const res = await fetch("/api/totals");
+    const data = await res.json();
+    if (data.today.event_count === 0 && data.week.event_count === 0) {
+      container.innerHTML = '<div class="totals-empty">No events recorded yet.</div>';
+      return;
+    }
+    let html = '<div class="totals-widget">';
+    html += renderTotalsCard("Today", data.today);
+    html += renderTotalsCard("Last 7 Days", data.week);
+    html += '</div>';
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = '';
+  }
+}
+
+function renderTotalsCard(label, t) {
+  let html = '<div class="totals-card"><h3>' + label + '</h3>';
+  html += '<div class="totals-grid">';
+  html += '<div class="totals-stat"><span class="label">Tokens</span>';
+  html += '<span class="value">' + t.total_tokens.toLocaleString() + '</span>';
+  html += '<span class="breakdown">' + t.input_tokens.toLocaleString() + ' in / ' + t.output_tokens.toLocaleString() + ' out</span></div>';
+  html += '<div class="totals-stat"><span class="label">Cost</span>';
+  html += '<span class="value">$' + t.estimated_cost.toFixed(4) + '</span>';
+  html += '<span class="breakdown">$' + t.input_cost.toFixed(4) + ' in / $' + t.output_cost.toFixed(4) + ' out</span></div>';
+  html += '<div class="totals-stat"><span class="label">Events</span>';
+  html += '<span class="value">' + t.event_count.toLocaleString() + '</span></div>';
+  if (t.top_models && t.top_models.length > 0) {
+    html += '<div class="totals-stat"><span class="label">Top Model</span>';
+    html += '<span class="value" style="font-size:1rem">' + t.top_models[0].model + '</span>';
+    html += '<span class="breakdown">$' + t.top_models[0].estimated_cost.toFixed(4) + ' (' + t.top_models[0].event_count + ' calls)</span></div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+
 async function loadBudget() {
   const container = document.getElementById("budget-container");
   try {
@@ -204,6 +255,7 @@ function renderBudgetCard(label, period) {
   return html;
 }
 
+loadTotals();
 loadBudget();
 loadSnapshots();
 </script>
@@ -277,6 +329,71 @@ export function startDashboard(opts: DashboardOptions = {}): void {
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/totals" && req.method === "GET") {
+      try {
+        const now = new Date();
+        const todayStart = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+        ).toISOString();
+        const weekStart = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)
+        ).toISOString();
+
+        const todayAgg = queryAggregate({ since: todayStart }, dbPath);
+        const weekAgg = queryAggregate({ since: weekStart }, dbPath);
+
+        const pricing = getPricingTable();
+        const prefixKeys = Object.keys(pricing).sort((a, b) => b.length - a.length);
+
+        function costSplit(byModel: typeof todayAgg.by_model) {
+          let inputCost = 0;
+          let outputCost = 0;
+          for (const m of byModel) {
+            const key = prefixKeys.find((k) => m.model.startsWith(k));
+            const rates = pricing[m.model] ?? (key ? pricing[key] : undefined);
+            if (rates) {
+              inputCost += rates.input * m.input_tokens;
+              outputCost += rates.output * m.output_tokens;
+            } else {
+              // Unknown model — attribute full cost proportionally
+              const total = m.input_tokens + m.output_tokens;
+              if (total > 0) {
+                inputCost += m.estimated_cost * (m.input_tokens / total);
+                outputCost += m.estimated_cost * (m.output_tokens / total);
+              }
+            }
+          }
+          return { input_cost: inputCost, output_cost: outputCost };
+        }
+
+        function formatPeriod(agg: typeof todayAgg) {
+          const split = costSplit(agg.by_model);
+          return {
+            input_tokens: agg.input_tokens,
+            output_tokens: agg.output_tokens,
+            total_tokens: agg.total_tokens,
+            estimated_cost: agg.estimated_cost,
+            input_cost: split.input_cost,
+            output_cost: split.output_cost,
+            event_count: agg.event_count,
+            top_models: agg.by_model.slice(0, 5),
+          };
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            today: formatPeriod(todayAgg),
+            week: formatPeriod(weekAgg),
+          })
+        );
       } catch (err) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: (err as Error).message }));
