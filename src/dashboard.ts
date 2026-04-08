@@ -1,9 +1,14 @@
 import express from "express";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { queryEvents, listSnapshots, queryAggregate } from "./store.js";
 import { compareSnapshots } from "./compare.js";
 import { loadConfig } from "./config.js";
 import { openBudgetDb, getPeriodTotals } from "./budget.js";
 import { getPricingTable } from "./pricing.js";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const SPA_DIR = join(__dirname, "dashboard");
 
 const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -269,6 +274,10 @@ export interface DashboardOptions {
 export function createApp(dbPath?: string): express.Express {
   const app = express();
 
+  // Serve SPA build if available (static assets)
+  app.use(express.static(SPA_DIR));
+
+  // Fallback: serve inline HTML for "/" when no SPA build exists
   app.get("/", (_req, res) => {
     res.type("html").send(DASHBOARD_HTML);
   });
