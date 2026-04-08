@@ -284,6 +284,55 @@ const tooManyToolCalls: SuggestionRule = {
   },
 };
 
+const excessiveContextGrowth: SuggestionRule = {
+  id: "excessive-context-growth",
+  name: "Excessive Context Passed Between Tool Cycles",
+  evaluate(events) {
+    if (events.length < 2) return [];
+
+    const MIN_INPUT_TOKENS = 500;
+    const GROWTH_THRESHOLD = 0.5; // 50%
+
+    const sorted = [...events]
+      .filter((e) => e.input_tokens >= MIN_INPUT_TOKENS)
+      .sort(
+        (a, b) =>
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      );
+
+    if (sorted.length < 2) return [];
+
+    let spikes = 0;
+    let maxGrowthPct = 0;
+    let totalGrowthTokens = 0;
+
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1].input_tokens;
+      const curr = sorted[i].input_tokens;
+      const growth = (curr - prev) / prev;
+
+      if (growth > GROWTH_THRESHOLD) {
+        spikes++;
+        totalGrowthTokens += curr - prev;
+        if (growth > maxGrowthPct) maxGrowthPct = growth;
+      }
+    }
+
+    if (spikes === 0) return [];
+
+    return [
+      {
+        rule: this.id,
+        title: "Context size growing rapidly between calls",
+        impact: `${spikes} consecutive call pair${spikes > 1 ? "s" : ""} showed >${Math.round(GROWTH_THRESHOLD * 100)}% context growth (worst ${Math.round(maxGrowthPct * 100)}%, ~${totalGrowthTokens.toLocaleString()} added tokens) — suggests tool results are accumulating in context without pruning.`,
+        action:
+          "Summarize or truncate tool results before appending to context, use sliding-window context management, or drop earlier tool outputs once consumed.",
+        confidence: Math.min(1, spikes / 5),
+      },
+    ];
+  },
+};
+
 /** All built-in rules, in evaluation order. */
 export const builtinRules: SuggestionRule[] = [
   highTokenUsage,
@@ -293,6 +342,7 @@ export const builtinRules: SuggestionRule[] = [
   repeatedStaticContext,
   highRetryLoop,
   tooManyToolCalls,
+  excessiveContextGrowth,
 ];
 
 /**

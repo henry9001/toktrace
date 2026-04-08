@@ -325,6 +325,71 @@ describe("built-in rules", () => {
     assert.ok(tmtcCard.impact.includes("max 12"), "should report max tool calls");
   });
 
+  it("excessive-context-growth fires when input_tokens grows >50% between consecutive calls", () => {
+    const now = Date.now();
+    const events = [
+      makeEvent({ input_tokens: 1000, timestamp: new Date(now).toISOString() }),
+      makeEvent({ input_tokens: 1600, timestamp: new Date(now + 5_000).toISOString() }),
+      makeEvent({ input_tokens: 2500, timestamp: new Date(now + 10_000).toISOString() }),
+    ];
+    const cards = runRules(events);
+    const ecgCard = cards.find((c) => c.rule === "excessive-context-growth");
+    assert.ok(ecgCard, "excessive-context-growth rule should fire");
+    assert.ok(ecgCard.impact.includes("2"), "should report 2 spike pairs");
+    assert.ok(ecgCard.confidence > 0 && ecgCard.confidence <= 1);
+  });
+
+  it("excessive-context-growth does not fire when growth is <=50%", () => {
+    const now = Date.now();
+    const events = [
+      makeEvent({ input_tokens: 1000, timestamp: new Date(now).toISOString() }),
+      makeEvent({ input_tokens: 1400, timestamp: new Date(now + 5_000).toISOString() }),
+      makeEvent({ input_tokens: 1700, timestamp: new Date(now + 10_000).toISOString() }),
+    ];
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "excessive-context-growth"));
+  });
+
+  it("excessive-context-growth ignores events with <500 input tokens", () => {
+    const now = Date.now();
+    const events = [
+      makeEvent({ input_tokens: 100, timestamp: new Date(now).toISOString() }),
+      makeEvent({ input_tokens: 200, timestamp: new Date(now + 5_000).toISOString() }),
+      makeEvent({ input_tokens: 400, timestamp: new Date(now + 10_000).toISOString() }),
+    ];
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "excessive-context-growth"));
+  });
+
+  it("excessive-context-growth does not fire with fewer than 2 events", () => {
+    const events = [makeEvent({ input_tokens: 1000 })];
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "excessive-context-growth"));
+  });
+
+  it("excessive-context-growth reports worst growth percentage", () => {
+    const now = Date.now();
+    const events = [
+      makeEvent({ input_tokens: 1000, timestamp: new Date(now).toISOString() }),
+      makeEvent({ input_tokens: 3000, timestamp: new Date(now + 5_000).toISOString() }),
+    ];
+    const cards = runRules(events);
+    const ecgCard = cards.find((c) => c.rule === "excessive-context-growth");
+    assert.ok(ecgCard, "rule should fire");
+    assert.ok(ecgCard.impact.includes("200%"), "should report 200% worst growth");
+  });
+
+  it("excessive-context-growth does not fire when context shrinks", () => {
+    const now = Date.now();
+    const events = [
+      makeEvent({ input_tokens: 2000, timestamp: new Date(now).toISOString() }),
+      makeEvent({ input_tokens: 1000, timestamp: new Date(now + 5_000).toISOString() }),
+      makeEvent({ input_tokens: 800, timestamp: new Date(now + 10_000).toISOString() }),
+    ];
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "excessive-context-growth"));
+  });
+
   it("all builtin rules have unique IDs", () => {
     const ids = builtinRules.map((r) => r.id);
     assert.equal(new Set(ids).size, ids.length, "rule IDs must be unique");
