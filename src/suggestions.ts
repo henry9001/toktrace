@@ -130,12 +130,52 @@ const outputHeavy: SuggestionRule = {
   },
 };
 
+const repeatedStaticContext: SuggestionRule = {
+  id: "repeated-static-context",
+  name: "Repeated Static Context Chunk",
+  evaluate(events) {
+    // Group events by prompt_hash (skip events without a hash)
+    const byHash: Record<string, { count: number; totalInputTokens: number }> = {};
+    for (const e of events) {
+      if (!e.prompt_hash) continue;
+      if (!byHash[e.prompt_hash]) byHash[e.prompt_hash] = { count: 0, totalInputTokens: 0 };
+      byHash[e.prompt_hash].count += 1;
+      byHash[e.prompt_hash].totalInputTokens += e.input_tokens;
+    }
+
+    // Find hashes repeated in >5 calls where avg input >200 tokens
+    const candidates = Object.entries(byHash).filter(([, stats]) => {
+      const avgInput = stats.totalInputTokens / stats.count;
+      return stats.count > 5 && avgInput > 200;
+    });
+
+    if (candidates.length === 0) return [];
+
+    // Pick the most repeated pattern
+    candidates.sort((a, b) => b[1].count - a[1].count);
+    const [, top] = candidates[0];
+    const avgTokens = Math.round(top.totalInputTokens / top.count);
+    const wastedTokens = avgTokens * (top.count - 1);
+
+    return [
+      {
+        rule: this.id,
+        title: "Repeated static context detected",
+        impact: `The same prompt (~${avgTokens.toLocaleString()} input tokens) was sent ${top.count} times — ~${wastedTokens.toLocaleString()} redundant tokens across ${candidates.length} repeated pattern${candidates.length > 1 ? "s" : ""}.`,
+        action: "Extract the repeated content into a cached system prompt (e.g. Anthropic prompt caching, OpenAI cached completions) or deduplicate by moving static context to a shared prefix.",
+        confidence: Math.min(1, top.count / 20),
+      },
+    ];
+  },
+};
+
 /** All built-in rules, in evaluation order. */
 export const builtinRules: SuggestionRule[] = [
   highTokenUsage,
   modelDowngrade,
   highLatency,
   outputHeavy,
+  repeatedStaticContext,
 ];
 
 /**

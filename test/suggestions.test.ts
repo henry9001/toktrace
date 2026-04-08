@@ -138,6 +138,55 @@ describe("built-in rules", () => {
     assert.ok(!cards.find((c) => c.rule === "output-heavy"));
   });
 
+  it("repeated-static-context fires when same prompt_hash appears >5 times with >200 avg input tokens", () => {
+    const events = Array.from({ length: 8 }, () =>
+      makeEvent({ prompt_hash: "abc123", input_tokens: 500 }),
+    );
+    const cards = runRules(events);
+    const rscCard = cards.find((c) => c.rule === "repeated-static-context");
+    assert.ok(rscCard, "repeated-static-context rule should fire");
+    assert.ok(rscCard.impact.includes("500"), "should mention token count");
+    assert.ok(rscCard.impact.includes("8"), "should mention repeat count");
+    assert.ok(rscCard.confidence > 0 && rscCard.confidence <= 1);
+  });
+
+  it("repeated-static-context does not fire with fewer than 6 repeated prompts", () => {
+    const events = Array.from({ length: 5 }, () =>
+      makeEvent({ prompt_hash: "abc123", input_tokens: 500 }),
+    );
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "repeated-static-context"));
+  });
+
+  it("repeated-static-context does not fire when avg input tokens <= 200", () => {
+    const events = Array.from({ length: 10 }, () =>
+      makeEvent({ prompt_hash: "abc123", input_tokens: 100 }),
+    );
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "repeated-static-context"));
+  });
+
+  it("repeated-static-context ignores events without prompt_hash", () => {
+    const events = Array.from({ length: 10 }, () =>
+      makeEvent({ prompt_hash: null, input_tokens: 500 }),
+    );
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "repeated-static-context"));
+  });
+
+  it("repeated-static-context picks the most repeated pattern", () => {
+    const frequent = Array.from({ length: 12 }, () =>
+      makeEvent({ prompt_hash: "frequent", input_tokens: 300 }),
+    );
+    const less = Array.from({ length: 7 }, () =>
+      makeEvent({ prompt_hash: "less-frequent", input_tokens: 400 }),
+    );
+    const cards = runRules([...frequent, ...less]);
+    const rscCard = cards.find((c) => c.rule === "repeated-static-context");
+    assert.ok(rscCard, "rule should fire");
+    assert.ok(rscCard.impact.includes("12"), "should report the most repeated pattern count");
+  });
+
   it("all builtin rules have unique IDs", () => {
     const ids = builtinRules.map((r) => r.id);
     assert.equal(new Set(ids).size, ids.length, "rule IDs must be unique");
