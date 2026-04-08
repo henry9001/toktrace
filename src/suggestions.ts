@@ -259,6 +259,31 @@ const highRetryLoop: SuggestionRule = {
   },
 };
 
+const tooManyToolCalls: SuggestionRule = {
+  id: "too-many-tool-calls",
+  name: "Too Many Tool Calls Per Response",
+  evaluate(events) {
+    const THRESHOLD = 5;
+    const offending = events.filter((e) => e.tool_call_count > THRESHOLD);
+    if (offending.length === 0) return [];
+
+    const totalToolCalls = offending.reduce((s, e) => s + e.tool_call_count, 0);
+    const avgToolCalls = Math.round(totalToolCalls / offending.length);
+    const maxToolCalls = Math.max(...offending.map((e) => e.tool_call_count));
+
+    return [
+      {
+        rule: this.id,
+        title: "Too many tool calls per response",
+        impact: `${offending.length} response${offending.length > 1 ? "s" : ""} had >${THRESHOLD} tool calls (avg ${avgToolCalls}, max ${maxToolCalls}) — each tool call adds latency and token overhead from serialized results.`,
+        action:
+          "Batch related operations into fewer tools, reduce tool definition granularity, or split complex tasks across multiple turns to lower per-response tool call count.",
+        confidence: Math.min(1, offending.length / 10),
+      },
+    ];
+  },
+};
+
 /** All built-in rules, in evaluation order. */
 export const builtinRules: SuggestionRule[] = [
   highTokenUsage,
@@ -267,6 +292,7 @@ export const builtinRules: SuggestionRule[] = [
   outputHeavy,
   repeatedStaticContext,
   highRetryLoop,
+  tooManyToolCalls,
 ];
 
 /**

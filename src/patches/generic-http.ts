@@ -118,6 +118,7 @@ export function apply(options: TokTraceOptions): boolean {
             : null,
           app_tag: null,
           env: process.env.NODE_ENV ?? null,
+          tool_call_count: 0,
         };
 
         insertEvent(event, options.dbPath, {

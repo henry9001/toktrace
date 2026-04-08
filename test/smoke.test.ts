@@ -48,6 +48,7 @@ describe("TokTrace E1 smoke test", () => {
       prompt_hash: "abcd1234abcd1234",
       app_tag: null,
       env: "test",
+      tool_call_count: 0,
     };
 
     const alerts = insertEvent(event, dbPath);
@@ -81,6 +82,7 @@ describe("TokTrace E1 smoke test", () => {
       prompt_hash: null,
       app_tag: null,
       env: "test",
+      tool_call_count: 0,
     };
 
     const event2: LLMEvent = {
@@ -96,6 +98,7 @@ describe("TokTrace E1 smoke test", () => {
       prompt_hash: null,
       app_tag: null,
       env: "test",
+      tool_call_count: 0,
     };
 
     insertEvent(event1, dbPath);

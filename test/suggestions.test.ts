@@ -18,6 +18,7 @@ function makeEvent(overrides: Partial<LLMEvent> = {}): LLMEvent {
     prompt_hash: null,
     app_tag: null,
     env: "test",
+    tool_call_count: 0,
     ...overrides,
   };
 }
@@ -278,6 +279,48 @@ describe("built-in rules", () => {
     assert.ok(hrlCard, "rule should fire");
     // 4 calls * 1000 tokens avg = 3000 wasted (count-1 redundant)
     assert.ok(hrlCard.impact.includes("3,000") || hrlCard.impact.includes("3000"), "should report ~3000 wasted tokens");
+  });
+
+  it("too-many-tool-calls fires when events have >5 tool calls", () => {
+    const events = Array.from({ length: 3 }, () =>
+      makeEvent({ tool_call_count: 8 }),
+    );
+    const cards = runRules(events);
+    const tmtcCard = cards.find((c) => c.rule === "too-many-tool-calls");
+    assert.ok(tmtcCard, "too-many-tool-calls rule should fire");
+    assert.ok(tmtcCard.impact.includes("3"), "should mention offending response count");
+    assert.ok(tmtcCard.impact.includes("8"), "should mention avg/max tool calls");
+    assert.ok(tmtcCard.confidence > 0 && tmtcCard.confidence <= 1);
+  });
+
+  it("too-many-tool-calls does not fire when tool_call_count <= 5", () => {
+    const events = Array.from({ length: 10 }, () =>
+      makeEvent({ tool_call_count: 5 }),
+    );
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "too-many-tool-calls"));
+  });
+
+  it("too-many-tool-calls does not fire with zero tool calls", () => {
+    const events = Array.from({ length: 10 }, () =>
+      makeEvent({ tool_call_count: 0 }),
+    );
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "too-many-tool-calls"));
+  });
+
+  it("too-many-tool-calls reports correct max when mixed events", () => {
+    const events = [
+      makeEvent({ tool_call_count: 3 }),
+      makeEvent({ tool_call_count: 12 }),
+      makeEvent({ tool_call_count: 7 }),
+      makeEvent({ tool_call_count: 2 }),
+    ];
+    const cards = runRules(events);
+    const tmtcCard = cards.find((c) => c.rule === "too-many-tool-calls");
+    assert.ok(tmtcCard, "rule should fire for events exceeding threshold");
+    assert.ok(tmtcCard.impact.includes("2 response"), "should count only offending events");
+    assert.ok(tmtcCard.impact.includes("max 12"), "should report max tool calls");
   });
 
   it("all builtin rules have unique IDs", () => {

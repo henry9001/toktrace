@@ -33,6 +33,7 @@ describe("TokTrace E2 dashboard HTTP server", () => {
       prompt_hash: null,
       app_tag: null,
       env: "test",
+      tool_call_count: 0,
     };
     insertEvent(event, dbPath);
 
@@ -86,6 +87,7 @@ describe("TokTrace E2 dashboard HTTP server", () => {
       prompt_hash: null,
       app_tag: null,
       env: "test",
+      tool_call_count: 0,
     }, dbPath);
 
     const res = await fetch(`${baseUrl}/api/events?limit=1`);

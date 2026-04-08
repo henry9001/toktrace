@@ -38,6 +38,7 @@ export interface LLMEvent {
   prompt_hash: string | null;
   app_tag: string | null;
   env: string | null;
+  tool_call_count: number;
 }
 
 export interface SnapshotSummary {

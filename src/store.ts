@@ -73,6 +73,12 @@ function applyMigrations(db: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_suggestions_dedup ON suggestions(rule, content_hash);
     CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
   `);
+  // Migration: add tool_call_count column
+  const cols = db.prepare("PRAGMA table_info(events)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "tool_call_count")) {
+    db.exec("ALTER TABLE events ADD COLUMN tool_call_count INTEGER NOT NULL DEFAULT 0");
+  }
+
   initBudgetSchema(db);
   initRulesSchema(db);
 }
@@ -97,10 +103,10 @@ export function insertEvent(
   db.prepare(`
     INSERT OR REPLACE INTO events
       (id, timestamp, model, provider, input_tokens, output_tokens, total_tokens,
-       estimated_cost, latency_ms, prompt_hash, app_tag, env)
+       estimated_cost, latency_ms, prompt_hash, app_tag, env, tool_call_count)
     VALUES
       (@id, @timestamp, @model, @provider, @input_tokens, @output_tokens, @total_tokens,
-       @estimated_cost, @latency_ms, @prompt_hash, @app_tag, @env)
+       @estimated_cost, @latency_ms, @prompt_hash, @app_tag, @env, @tool_call_count)
   `).run(event);
   const alerts = budgetCheck(db, event);
   if (metadata) {

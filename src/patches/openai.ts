@@ -60,6 +60,12 @@ export function apply(options: TokTraceOptions): boolean {
       const model = (response.model as string) ?? (body.model as string) ?? "unknown";
       const messages = body.messages as unknown[] | undefined;
 
+      // Count tool_calls in the first choice's message
+      const choices = response.choices as Array<Record<string, unknown>> | undefined;
+      const firstMsg = choices?.[0]?.message as Record<string, unknown> | undefined;
+      const toolCalls = firstMsg?.tool_calls as unknown[] | undefined;
+      const toolCallCount = Array.isArray(toolCalls) ? toolCalls.length : 0;
+
       const event: LLMEvent = {
         id: randomUUID(),
         timestamp: new Date().toISOString(),
@@ -75,6 +81,7 @@ export function apply(options: TokTraceOptions): boolean {
           : null,
         app_tag: null,
         env: process.env.NODE_ENV ?? null,
+        tool_call_count: toolCallCount,
       };
 
       insertEvent(event, options.dbPath, { messages, body });
