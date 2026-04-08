@@ -1,7 +1,7 @@
 import express from "express";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { queryEvents, listSnapshots, queryAggregate } from "./store.js";
+import { queryEvents, listSnapshots, queryAggregate, queryTrend } from "./store.js";
 import { compareSnapshots } from "./compare.js";
 import { loadConfig } from "./config.js";
 import { openBudgetDb, getPeriodTotals } from "./budget.js";
@@ -61,12 +61,18 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .totals-stat .value { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .totals-stat .breakdown { font-size: .75rem; color: #666; margin-top: .15rem; }
   .totals-empty { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 2rem; color: #999; font-size: .9rem; font-style: italic; text-align: center; }
+  .trend-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1); padding: 1.5rem; margin-bottom: 2rem; }
+  .trend-card h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+  .trend-card canvas { width: 100% !important; max-height: 300px; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <h1>TokTrace &mdash; Snapshot Comparison</h1>
 
 <div id="totals-container"></div>
+
+<div id="trend-container"></div>
 
 <div id="budget-container"></div>
 
@@ -214,6 +220,82 @@ function renderTotalsCard(label, t) {
   return html;
 }
 
+async function loadTrend() {
+  const container = document.getElementById("trend-container");
+  try {
+    const res = await fetch("/api/trend");
+    const data = await res.json();
+    if (data.every(function(d) { return d.total_tokens === 0; })) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = '<div class="trend-card"><h2>Token Usage — Last 7 Days</h2><canvas id="trend-chart"></canvas></div>';
+    const ctx = document.getElementById("trend-chart").getContext("2d");
+    new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: data.map(function(d) { return d.date.slice(5); }),
+        datasets: [
+          {
+            label: "Total Tokens",
+            data: data.map(function(d) { return d.total_tokens; }),
+            borderColor: "#2563eb",
+            backgroundColor: "rgba(37,99,235,0.1)",
+            fill: true,
+            tension: 0.3,
+            pointRadius: 4,
+            pointBackgroundColor: "#2563eb",
+          },
+          {
+            label: "Input Tokens",
+            data: data.map(function(d) { return d.input_tokens; }),
+            borderColor: "#16a34a",
+            backgroundColor: "transparent",
+            borderDash: [5, 3],
+            tension: 0.3,
+            pointRadius: 3,
+            pointBackgroundColor: "#16a34a",
+          },
+          {
+            label: "Output Tokens",
+            data: data.map(function(d) { return d.output_tokens; }),
+            borderColor: "#dc2626",
+            backgroundColor: "transparent",
+            borderDash: [5, 3],
+            tension: 0.3,
+            pointRadius: 3,
+            pointBackgroundColor: "#dc2626",
+          }
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                return ctx.dataset.label + ": " + ctx.parsed.y.toLocaleString();
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(v) { return v.toLocaleString(); }
+            }
+          }
+        }
+      }
+    });
+  } catch (err) {
+    container.innerHTML = '';
+  }
+}
+
 async function loadBudget() {
   const container = document.getElementById("budget-container");
   try {
@@ -260,6 +342,7 @@ function renderBudgetCard(label, period) {
 }
 
 loadTotals();
+loadTrend();
 loadBudget();
 loadSnapshots();
 </script>
@@ -398,6 +481,17 @@ export function createApp(dbPath?: string): express.Express {
         today: formatPeriod(todayAgg),
         week: formatPeriod(weekAgg),
       });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/trend", (req, res) => {
+    try {
+      const daysRaw = typeof req.query.days === "string" ? parseInt(req.query.days, 10) : 7;
+      const days = Math.min(Math.max(daysRaw, 1), 90);
+      const trend = queryTrend({ days }, dbPath);
+      res.json(trend);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }

@@ -221,6 +221,68 @@ export function queryAggregate(
   return { ...totals, by_model: byModel };
 }
 
+export interface TrendPoint {
+  date: string;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  estimated_cost: number;
+  event_count: number;
+}
+
+export function queryTrend(
+  opts: { days?: number } = {},
+  dbPath?: string
+): TrendPoint[] {
+  const days = opts.days ?? 7;
+  const db = openDb(dbPath);
+
+  const now = new Date();
+  const since = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - 1))
+  ).toISOString();
+
+  const rows = db
+    .prepare(
+      `SELECT
+         DATE(timestamp) AS date,
+         COALESCE(SUM(total_tokens), 0) AS total_tokens,
+         COALESCE(SUM(input_tokens), 0) AS input_tokens,
+         COALESCE(SUM(output_tokens), 0) AS output_tokens,
+         COALESCE(SUM(estimated_cost), 0) AS estimated_cost,
+         COUNT(*) AS event_count
+       FROM events
+       WHERE timestamp >= @since
+       GROUP BY DATE(timestamp)
+       ORDER BY date ASC`
+    )
+    .all({ since }) as TrendPoint[];
+
+  db.close();
+
+  // Fill in missing days with zeros
+  const result: TrendPoint[] = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - 1 - i))
+    );
+    const dateStr = d.toISOString().slice(0, 10);
+    const existing = rows.find((r) => r.date === dateStr);
+    result.push(
+      existing ?? {
+        date: dateStr,
+        total_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        estimated_cost: 0,
+        event_count: 0,
+      }
+    );
+  }
+
+  return result;
+}
+
 export function buildSummary(events: LLMEvent[]): SnapshotSummary {
   const totals = events.reduce(
     (acc, e) => {

@@ -16,8 +16,8 @@ export {
   getUndeliveredAlerts,
   markAlertDelivered,
 } from "./budget.js";
-export type { AggregateTotals } from "./store.js";
-export { initStore, insertEvent, queryEvents, queryAggregate, insertSnapshot, listSnapshots, getSnapshot, getSnapshotByName, buildSummary } from "./store.js";
+export type { AggregateTotals, TrendPoint } from "./store.js";
+export { initStore, insertEvent, queryEvents, queryAggregate, queryTrend, insertSnapshot, listSnapshots, getSnapshot, getSnapshotByName, buildSummary } from "./store.js";
 export { createSnapshot } from "./snapshot.js";
 export { compareSnapshots } from "./compare.js";
 export { exportSnapshot } from "./export.js";
