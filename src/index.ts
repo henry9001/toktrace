@@ -1,7 +1,7 @@
 export { init } from "./init.js";
 export { estimateCost, getPricingTable, listPricing } from "./pricing.js";
 export type { ModelPricing, PricingEntry } from "./pricing.js";
-export type { TokTraceOptions, LLMEvent, ProxyTarget, Snapshot, SnapshotSummary, SnapshotComparison, DeltaValue, TopSpenderDelta, AlertLevel, BudgetMetric, BudgetAlert } from "./types.js";
+export type { TokTraceOptions, LLMEvent, ProxyTarget, Snapshot, SnapshotSummary, SnapshotComparison, DeltaValue, TopSpenderDelta, AlertLevel, BudgetMetric, BudgetAlert, SuggestionCard } from "./types.js";
 export type { BudgetConfig, AlertsConfig, TokTraceConfig } from "./config.js";
 export { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 export type { PeriodType, PeriodTotals } from "./budget.js";
@@ -23,5 +23,7 @@ export { compareSnapshots } from "./compare.js";
 export { exportSnapshot } from "./export.js";
 export type { ExportOptions, ExportResult } from "./export.js";
 export { createApp, startDashboard } from "./dashboard.js";
+export type { SuggestionRule } from "./suggestions.js";
+export { builtinRules, runRules } from "./suggestions.js";
 export type { DashboardOptions } from "./dashboard.js";
 export { formatAlertMessage, sendDesktopNotification, printCliWarning, deliverAlert, deliverPendingAlerts } from "./alerts.js";

@@ -90,6 +90,19 @@ export interface SnapshotComparison {
   suggestions_b: string[];
 }
 
+export interface SuggestionCard {
+  /** Rule identifier, e.g. "high-token-usage" */
+  rule: string;
+  /** Human-readable title */
+  title: string;
+  /** Description of the potential impact or benefit */
+  impact: string;
+  /** Recommended action to take */
+  action: string;
+  /** Confidence score between 0 and 1 */
+  confidence: number;
+}
+
 export type AlertLevel = "warning" | "alert";
 export type BudgetMetric = "tokens" | "cost_usd";
 
