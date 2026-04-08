@@ -187,6 +187,99 @@ describe("built-in rules", () => {
     assert.ok(rscCard.impact.includes("12"), "should report the most repeated pattern count");
   });
 
+  it("high-retry-loop fires when 3+ identical prompts occur within 60s", () => {
+    const now = Date.now();
+    const events = Array.from({ length: 5 }, (_, i) =>
+      makeEvent({
+        prompt_hash: "retry-hash",
+        input_tokens: 400,
+        timestamp: new Date(now + i * 5_000).toISOString(), // 5s apart
+      }),
+    );
+    const cards = runRules(events);
+    const hrlCard = cards.find((c) => c.rule === "high-retry-loop");
+    assert.ok(hrlCard, "high-retry-loop rule should fire");
+    assert.ok(hrlCard.impact.includes("5"), "should mention burst count");
+    assert.ok(hrlCard.confidence > 0 && hrlCard.confidence <= 1);
+  });
+
+  it("high-retry-loop does not fire with fewer than 3 identical prompts in window", () => {
+    const now = Date.now();
+    const events = Array.from({ length: 2 }, (_, i) =>
+      makeEvent({
+        prompt_hash: "retry-hash",
+        input_tokens: 400,
+        timestamp: new Date(now + i * 5_000).toISOString(),
+      }),
+    );
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "high-retry-loop"));
+  });
+
+  it("high-retry-loop does not fire when prompts are spread beyond 60s window", () => {
+    const now = Date.now();
+    const events = Array.from({ length: 5 }, (_, i) =>
+      makeEvent({
+        prompt_hash: "spread-hash",
+        input_tokens: 400,
+        timestamp: new Date(now + i * 30_000).toISOString(), // 30s apart = 120s total span
+      }),
+    );
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "high-retry-loop"));
+  });
+
+  it("high-retry-loop does not fire when prompt_hash is null", () => {
+    const now = Date.now();
+    const events = Array.from({ length: 5 }, (_, i) =>
+      makeEvent({
+        prompt_hash: null,
+        input_tokens: 400,
+        timestamp: new Date(now + i * 5_000).toISOString(),
+      }),
+    );
+    const cards = runRules(events);
+    assert.ok(!cards.find((c) => c.rule === "high-retry-loop"));
+  });
+
+  it("high-retry-loop picks the worst burst across hash groups", () => {
+    const now = Date.now();
+    const small = Array.from({ length: 3 }, (_, i) =>
+      makeEvent({
+        prompt_hash: "small-burst",
+        input_tokens: 200,
+        timestamp: new Date(now + i * 2_000).toISOString(),
+      }),
+    );
+    const large = Array.from({ length: 7 }, (_, i) =>
+      makeEvent({
+        prompt_hash: "large-burst",
+        input_tokens: 300,
+        timestamp: new Date(now + i * 3_000).toISOString(),
+      }),
+    );
+    const cards = runRules([...small, ...large]);
+    const hrlCard = cards.find((c) => c.rule === "high-retry-loop");
+    assert.ok(hrlCard, "rule should fire");
+    assert.ok(hrlCard.impact.includes("7"), "should report the larger burst");
+  });
+
+  it("high-retry-loop reports wasted tokens correctly", () => {
+    const now = Date.now();
+    const events = Array.from({ length: 4 }, (_, i) =>
+      makeEvent({
+        prompt_hash: "waste-hash",
+        input_tokens: 1000,
+        timestamp: new Date(now + i * 1_000).toISOString(),
+      }),
+    );
+    const cards = runRules(events);
+    const hrlCard = cards.find((c) => c.rule === "high-retry-loop");
+    assert.ok(hrlCard, "rule should fire");
+    // 4 calls * 1000 tokens avg = 3000 wasted (count-1 redundant)
+    assert.ok(hrlCard.impact.includes("3,000") || hrlCard.impact.includes("3000"), "should report ~3000 wasted tokens");
+  });
+
   it("all builtin rules have unique IDs", () => {
     const ids = builtinRules.map((r) => r.id);
     assert.equal(new Set(ids).size, ids.length, "rule IDs must be unique");

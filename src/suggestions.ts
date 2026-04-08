@@ -169,6 +169,96 @@ const repeatedStaticContext: SuggestionRule = {
   },
 };
 
+const highRetryLoop: SuggestionRule = {
+  id: "high-retry-loop",
+  name: "High Retry Loop / Similar Prompt Repeat",
+  evaluate(events) {
+    const WINDOW_MS = 60_000; // 60-second window for burst detection
+    const MIN_BURST_SIZE = 3;
+
+    // Group events by prompt_hash (skip events without a hash)
+    const byHash: Record<string, LLMEvent[]> = {};
+    for (const e of events) {
+      if (!e.prompt_hash) continue;
+      if (!byHash[e.prompt_hash]) byHash[e.prompt_hash] = [];
+      byHash[e.prompt_hash].push(e);
+    }
+
+    // Find the worst temporal burst across all hash groups
+    let worstBurst: {
+      count: number;
+      spanMs: number;
+      totalInputTokens: number;
+    } | null = null;
+    let totalBurstGroups = 0;
+
+    for (const group of Object.values(byHash)) {
+      if (group.length < MIN_BURST_SIZE) continue;
+
+      group.sort(
+        (a, b) =>
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      );
+
+      // Sliding window to find the largest burst within WINDOW_MS
+      let maxBurstSize = 0;
+      let maxBurstStart = 0;
+      let maxBurstEnd = 0;
+      let start = 0;
+
+      for (let end = 0; end < group.length; end++) {
+        const endTime = new Date(group[end].timestamp).getTime();
+        while (
+          endTime - new Date(group[start].timestamp).getTime() >=
+          WINDOW_MS
+        ) {
+          start++;
+        }
+        const burstSize = end - start + 1;
+        if (burstSize > maxBurstSize) {
+          maxBurstSize = burstSize;
+          maxBurstStart = start;
+          maxBurstEnd = end;
+        }
+      }
+
+      if (maxBurstSize >= MIN_BURST_SIZE) {
+        totalBurstGroups++;
+        const tokens = group
+          .slice(maxBurstStart, maxBurstEnd + 1)
+          .reduce((s, e) => s + e.input_tokens, 0);
+        const span =
+          new Date(group[maxBurstEnd].timestamp).getTime() -
+          new Date(group[maxBurstStart].timestamp).getTime();
+
+        if (!worstBurst || maxBurstSize > worstBurst.count) {
+          worstBurst = {
+            count: maxBurstSize,
+            spanMs: span,
+            totalInputTokens: tokens,
+          };
+        }
+      }
+    }
+
+    if (!worstBurst) return [];
+
+    const avgTokens = Math.round(worstBurst.totalInputTokens / worstBurst.count);
+    const wastedTokens = avgTokens * (worstBurst.count - 1);
+
+    return [
+      {
+        rule: this.id,
+        title: "Retry loop detected",
+        impact: `${worstBurst.count} near-identical prompts fired within ${Math.round(worstBurst.spanMs / 1000)}s — ~${wastedTokens.toLocaleString()} redundant tokens across ${totalBurstGroups} detected burst${totalBurstGroups > 1 ? "s" : ""}.`,
+        action:
+          "Add response caching, exponential backoff, or a circuit-breaker to avoid redundant retries.",
+        confidence: Math.min(1, worstBurst.count / 10),
+      },
+    ];
+  },
+};
+
 /** All built-in rules, in evaluation order. */
 export const builtinRules: SuggestionRule[] = [
   highTokenUsage,
@@ -176,6 +266,7 @@ export const builtinRules: SuggestionRule[] = [
   highLatency,
   outputHeavy,
   repeatedStaticContext,
+  highRetryLoop,
 ];
 
 /**
