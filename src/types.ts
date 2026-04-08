@@ -103,6 +103,21 @@ export interface SuggestionCard {
   confidence: number;
 }
 
+export type SuggestionStatus = "active" | "dismissed" | "actioned";
+
+export interface StoredSuggestion extends SuggestionCard {
+  /** Unique database row id */
+  id: string;
+  /** Hash derived from rule + title + impact + action for dedup */
+  content_hash: string;
+  /** Current user-facing status */
+  status: SuggestionStatus;
+  /** ISO timestamp when the suggestion was first created */
+  created_at: string;
+  /** ISO timestamp when the status was last changed */
+  updated_at: string;
+}
+
 export type AlertLevel = "warning" | "alert";
 export type BudgetMetric = "tokens" | "cost_usd";
 

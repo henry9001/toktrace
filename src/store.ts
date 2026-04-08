@@ -2,7 +2,8 @@ import Database from "better-sqlite3";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { BudgetAlert, LLMEvent, Snapshot, SnapshotSummary } from "./types.js";
+import { createHash } from "node:crypto";
+import type { BudgetAlert, LLMEvent, Snapshot, SnapshotSummary, SuggestionCard, StoredSuggestion, SuggestionStatus } from "./types.js";
 import { budgetCheck, initBudgetSchema } from "./budget.js";
 import { checkRules, initRulesSchema } from "./rules.js";
 import type { RuleViolation } from "./rules.js";
@@ -55,6 +56,22 @@ function applyMigrations(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_snapshots_name ON snapshots(name);
     CREATE INDEX IF NOT EXISTS idx_snapshots_captured_at ON snapshots(captured_at);
+
+    CREATE TABLE IF NOT EXISTS suggestions (
+      id TEXT PRIMARY KEY,
+      rule TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      title TEXT NOT NULL,
+      impact TEXT NOT NULL,
+      action TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_suggestions_dedup ON suggestions(rule, content_hash);
+    CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
   `);
   initBudgetSchema(db);
   initRulesSchema(db);
@@ -391,4 +408,96 @@ export function buildSummary(events: LLMEvent[]): SnapshotSummary {
     top_spenders,
     suggestions,
   };
+}
+
+// ── Suggestion persistence ──────────────────────────────────────────────
+
+/** Compute a content hash for dedup: rule + title + impact + action. */
+export function suggestionContentHash(card: SuggestionCard): string {
+  return createHash("sha256")
+    .update(`${card.rule}\n${card.title}\n${card.impact}\n${card.action}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
+ * Persist suggestion cards to the database, deduplicating by rule + content_hash.
+ * Existing rows with the same key are left untouched (preserving their status).
+ * Returns the number of newly inserted suggestions.
+ */
+export function saveSuggestions(cards: SuggestionCard[], dbPath?: string): number {
+  if (cards.length === 0) return 0;
+  const db = openDb(dbPath);
+  const now = new Date().toISOString();
+
+  const stmt = db.prepare(`
+    INSERT INTO suggestions
+      (id, rule, content_hash, title, impact, action, confidence, status, created_at, updated_at)
+    VALUES
+      (@id, @rule, @content_hash, @title, @impact, @action, @confidence, 'active', @now, @now)
+    ON CONFLICT(rule, content_hash) DO UPDATE SET
+      confidence = @confidence,
+      updated_at = @now
+  `);
+
+  let inserted = 0;
+  const tx = db.transaction(() => {
+    for (const card of cards) {
+      const hash = suggestionContentHash(card);
+      const id = `sug_${hash}`;
+      const info = stmt.run({ id, ...card, content_hash: hash, now });
+      if (info.changes > 0) inserted++;
+    }
+  });
+  tx();
+  db.close();
+  return inserted;
+}
+
+/**
+ * Retrieve stored suggestions, optionally filtered by status.
+ */
+export function getSuggestions(
+  opts: { status?: SuggestionStatus } = {},
+  dbPath?: string,
+): StoredSuggestion[] {
+  const db = openDb(dbPath);
+  const where = opts.status ? "WHERE status = @status" : "";
+  const rows = db
+    .prepare(`SELECT * FROM suggestions ${where} ORDER BY created_at DESC`)
+    .all(opts.status ? { status: opts.status } : {}) as StoredSuggestion[];
+  db.close();
+  return rows;
+}
+
+/**
+ * Update a suggestion's status (dismiss or mark as actioned).
+ * Returns true if the row was found and updated.
+ */
+export function updateSuggestionStatus(
+  id: string,
+  status: SuggestionStatus,
+  dbPath?: string,
+): boolean {
+  const db = openDb(dbPath);
+  const now = new Date().toISOString();
+  const info = db
+    .prepare("UPDATE suggestions SET status = @status, updated_at = @now WHERE id = @id")
+    .run({ id, status, now });
+  db.close();
+  return info.changes > 0;
+}
+
+/**
+ * Dismiss a suggestion by ID.
+ */
+export function dismissSuggestion(id: string, dbPath?: string): boolean {
+  return updateSuggestionStatus(id, "dismissed", dbPath);
+}
+
+/**
+ * Mark a suggestion as actioned by ID.
+ */
+export function actionSuggestion(id: string, dbPath?: string): boolean {
+  return updateSuggestionStatus(id, "actioned", dbPath);
 }
