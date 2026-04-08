@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 import type { AlertsConfig, BudgetConfig } from "./config.js";
-import { initStore } from "./store.js";
+import { initStore, queryEvents, saveSuggestions } from "./store.js";
 import { createSnapshot, listSnapshots, getSnapshot } from "./snapshot.js";
 import { exportSnapshot } from "./export.js";
 import { compareSnapshots } from "./compare.js";
@@ -12,6 +12,7 @@ import { startDashboard } from "./dashboard.js";
 import { deliverPendingAlerts } from "./alerts.js";
 import { openBudgetDb } from "./budget.js";
 import { listPricing } from "./pricing.js";
+import { runRules } from "./suggestions.js";
 
 function readVersion(): string {
   const here = typeof __filename !== "undefined"
@@ -55,6 +56,7 @@ Commands:
   snapshot show     Show a specific snapshot by ID
   snapshot compare  Compare two snapshots side by side
   snapshot export   Export a snapshot as a ZIP bundle (JSON + MD + metadata)
+  suggest           Run optimization rules and print suggestion cards
   dashboard         Launch the comparison dashboard web UI
 
 Options:
@@ -683,6 +685,71 @@ Options:
   console.error(`Unknown snapshot subcommand: ${subcommand}`);
   console.error("  Use: toktrace snapshot create|list|show|compare|export");
   process.exit(1);
+}
+
+if (command === "suggest") {
+  const suggestArgs = rawArgs.slice(rawArgs.indexOf("suggest") + 1);
+  const parsed = parseArgs({
+    args: suggestArgs,
+    allowPositionals: false,
+    options: {
+      json: { type: "boolean" },
+      since: { type: "string" },
+      until: { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (parsed.values.help) {
+    console.log(`Usage: toktrace suggest [--json] [--since <iso>] [--until <iso>]
+
+Run all optimization rules against recorded LLM events and print suggestion cards.
+New suggestions are persisted for display in the dashboard.
+
+Options:
+  --json           Output as JSON array
+  --since <iso>    Only include events at or after this ISO timestamp
+  --until <iso>    Only include events at or before this ISO timestamp
+  -h, --help       Show this help message
+`);
+    process.exit(0);
+  }
+
+  const events = queryEvents({
+    since: parsed.values.since,
+    until: parsed.values.until,
+  });
+
+  if (events.length === 0) {
+    if (parsed.values.json) {
+      console.log("[]");
+    } else {
+      console.log("No events found. Record some LLM calls first, then re-run.");
+    }
+    process.exit(0);
+  }
+
+  const cards = runRules(events);
+  const saved = saveSuggestions(cards);
+
+  if (parsed.values.json) {
+    console.log(JSON.stringify(cards, null, 2));
+  } else if (cards.length === 0) {
+    console.log(`Analyzed ${events.length} events — no suggestions.`);
+  } else {
+    console.log(`Analyzed ${events.length} events — ${cards.length} suggestion(s):\n`);
+    for (const card of cards) {
+      const pct = Math.round(card.confidence * 100);
+      console.log(`  [${card.rule}] ${card.title}  (${pct}% confidence)`);
+      console.log(`    Impact: ${card.impact}`);
+      console.log(`    Action: ${card.action}`);
+      console.log("");
+    }
+    if (saved > 0) {
+      console.log(`${saved} new suggestion(s) saved.`);
+    }
+  }
+  process.exit(0);
 }
 
 if (command === "dashboard") {
