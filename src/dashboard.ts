@@ -7,6 +7,7 @@ import { compareSnapshots } from "./compare.js";
 import { loadConfig } from "./config.js";
 import { openBudgetDb, getPeriodTotals } from "./budget.js";
 import { getPricingTable } from "./pricing.js";
+import { runRules } from "./suggestions.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const SPA_DIR = join(__dirname, "dashboard");
@@ -785,6 +786,21 @@ export function createApp(dbPath?: string): express.Express {
       ).toISOString();
       const events = queryEvents({ since: weekStart, limit: 500 }, dbPath);
       res.json(events);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/suggestions", (_req, res) => {
+    try {
+      const now = new Date();
+      const weekStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)
+      ).toISOString();
+      const events = queryEvents({ since: weekStart }, dbPath);
+      const cards = runRules(events);
+      cards.sort((a, b) => b.confidence - a.confidence);
+      res.json(cards);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }

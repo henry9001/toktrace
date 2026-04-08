@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SuggestionsPanel } from "../components/SuggestionsPanel";
 
 interface BudgetPeriod {
   cost_used: number;
@@ -68,6 +69,7 @@ export function Home() {
           {budget.weekly && <BudgetCard title="Weekly" period={budget.weekly} />}
         </div>
       )}
+      <SuggestionsPanel />
     </div>
   );
 }
