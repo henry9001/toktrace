@@ -359,6 +359,16 @@ export function buildSummary(events: LLMEvent[]): SnapshotSummary {
     suggestions.push(`Top spender: ${top_spenders[0].model} — consider a cheaper model for low-stakes tasks.`);
   }
 
+  // Rule: large prompt + low output ratio detector
+  const lowOutputRatioCalls = events.filter(
+    (e) => e.input_tokens > 2000 && e.output_tokens < e.input_tokens * 0.1
+  );
+  if (lowOutputRatioCalls.length > 0) {
+    suggestions.push(
+      `${lowOutputRatioCalls.length} call(s) had large prompts (>2k tokens) with <10% output ratio — consider prompt compression or caching.`
+    );
+  }
+
   return {
     ...totals,
     event_count: events.length,
