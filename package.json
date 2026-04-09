@@ -20,6 +20,16 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./auto": {
+      "import": {
+        "types": "./dist/auto.d.ts",
+        "default": "./dist/auto.js"
+      },
+      "require": {
+        "types": "./dist/auto.d.cts",
+        "default": "./dist/auto.cjs"
+      }
     }
   },
   "bin": {

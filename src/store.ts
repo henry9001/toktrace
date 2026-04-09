@@ -6,7 +6,6 @@ import { createHash } from "node:crypto";
 import type { BudgetAlert, LLMEvent, Snapshot, SnapshotSummary, SuggestionCard, StoredSuggestion, SuggestionStatus } from "./types.js";
 import { budgetCheck, initBudgetSchema } from "./budget.js";
 import { checkRules, initRulesSchema } from "./rules.js";
-import type { RuleViolation } from "./rules.js";
 
 function defaultDbPath(): string {
   const dir = join(homedir(), ".toktrace");
