@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { spawn } from "node:child_process";
 import { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 import type { AlertsConfig, BudgetConfig } from "./config.js";
 import { initStore, queryEvents, saveSuggestions } from "./store.js";
@@ -20,6 +21,63 @@ function readVersion(): string {
     : fileURLToPath(import.meta.url);
   const pkgPath = join(dirname(here), "../package.json");
   return JSON.parse(readFileSync(pkgPath, "utf-8")).version;
+}
+
+function runInitLikeCommand(commandName: "init" | "install"): void {
+  const configDir = defaultConfigDir();
+  const configPath = join(configDir, "config.json");
+  const dbPath = join(configDir, "events.db");
+
+  const configExisted = existsSync(configPath);
+  const dbExisted = existsSync(dbPath);
+
+  if (!configExisted) {
+    saveConfig({});
+  }
+
+  initStore(dbPath);
+
+  console.log(`${commandName === "install" ? "Installed" : "Initialized"} toktrace in ${configDir}`);
+  console.log(`  config: ${configPath}${configExisted ? " (already existed)" : " (created)"}`);
+  console.log(`  database: ${dbPath}${dbExisted ? " (already existed)" : " (created)"}`);
+  console.log("");
+  console.log("Zero-code tracing:");
+  console.log("  toktrace run -- npm run dev");
+  console.log("  toktrace run -- node server.js");
+  console.log("");
+  console.log("Or add this to your own command:");
+  console.log("  node --import toktrace/auto <your-entry-file>");
+}
+
+function runWithAutoImport(args: string[]): void {
+  if (args.length === 0) {
+    console.error("Usage: toktrace run -- <command>");
+    process.exit(1);
+  }
+
+  const command = args.join(" ");
+  const currentNodeOptions = process.env.NODE_OPTIONS?.trim() ?? "";
+  const importFlag = "--import toktrace/auto";
+  const nodeOptions = currentNodeOptions.includes(importFlag)
+    ? currentNodeOptions
+    : `${currentNodeOptions} ${importFlag}`.trim();
+
+  const child = spawn(command, {
+    stdio: "inherit",
+    shell: true,
+    env: {
+      ...process.env,
+      NODE_OPTIONS: nodeOptions,
+    },
+  });
+
+  child.on("exit", (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal);
+      return;
+    }
+    process.exit(code ?? 0);
+  });
 }
 
 const { values, positionals } = parseArgs({
@@ -44,6 +102,8 @@ if (!command || values.help) {
 
 Commands:
   init              Initialize toktrace in the current project
+  install           Initialize toktrace and print zero-code run command
+  run               Run a command with toktrace auto-instrumentation
   pricing           List supported models and their token pricing
   budget set        Set budget limits (daily/weekly token and cost caps)
   alerts set        Configure alert delivery (desktop notifications, CLI warnings)
@@ -67,25 +127,19 @@ Options:
 }
 
 if (command === "init") {
-  const configDir = defaultConfigDir();
-  const configPath = join(configDir, "config.json");
-  const dbPath = join(configDir, "events.db");
-
-  const configExisted = existsSync(configPath);
-  const dbExisted = existsSync(dbPath);
-
-  // Write default config if it doesn't exist, preserve existing config
-  if (!configExisted) {
-    saveConfig({});
-  }
-
-  // Initialize the SQLite database (creates tables if needed)
-  initStore(dbPath);
-
-  console.log(`Initialized toktrace in ${configDir}`);
-  console.log(`  config: ${configPath}${configExisted ? " (already existed)" : " (created)"}`);
-  console.log(`  database: ${dbPath}${dbExisted ? " (already existed)" : " (created)"}`);
+  runInitLikeCommand("init");
   process.exit(0);
+}
+
+if (command === "install") {
+  runInitLikeCommand("install");
+  process.exit(0);
+}
+
+if (command === "run") {
+  const separator = rawArgs.indexOf("--");
+  const runArgs = separator >= 0 ? rawArgs.slice(separator + 1) : rawArgs.slice(1);
+  runWithAutoImport(runArgs);
 }
 
 if (command === "pricing") {
@@ -786,7 +840,17 @@ Options:
 
   startDashboard({ port, open: !parsed.values["no-open"] });
   // Server keeps the process alive — no process.exit() here
-} else {
+} else if (
+  command !== "init" &&
+  command !== "install" &&
+  command !== "run" &&
+  command !== "pricing" &&
+  command !== "budget" &&
+  command !== "alerts" &&
+  command !== "proxy" &&
+  command !== "snapshot" &&
+  command !== "suggest"
+) {
   console.error(`Unknown command: ${command}`);
   process.exit(1);
 }

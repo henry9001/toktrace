@@ -2,7 +2,7 @@ import { createWriteStream } from "node:fs";
 import { resolve } from "node:path";
 import archiver from "archiver";
 import { getSnapshotByName, getSnapshot } from "./store.js";
-import type { Snapshot, SnapshotSummary } from "./types.js";
+import type { Snapshot } from "./types.js";
 
 export interface ExportOptions {
   /** Snapshot name or ID to export */
