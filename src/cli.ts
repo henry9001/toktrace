@@ -3,9 +3,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { loadConfig, saveConfig, defaultConfigDir } from "./config.js";
 import type { AlertsConfig, BudgetConfig } from "./config.js";
-import { initStore, queryEvents, saveSuggestions } from "./store.js";
+import { initStore, queryEvents, queryAggregate, insertEvent, saveSuggestions } from "./store.js";
 import { createSnapshot, listSnapshots, getSnapshot } from "./snapshot.js";
 import { exportSnapshot } from "./export.js";
 import { compareSnapshots } from "./compare.js";
@@ -47,6 +48,9 @@ function runInitLikeCommand(commandName: "init" | "install"): void {
   console.log("");
   console.log("Or add this to your own command:");
   console.log("  node --import toktrace/auto <your-entry-file>");
+  console.log("");
+  console.log("Verify setup:");
+  console.log("  toktrace verify");
 }
 
 function runWithAutoImport(args: string[]): void {
@@ -72,6 +76,19 @@ function runWithAutoImport(args: string[]): void {
   });
 
   child.on("exit", (code, signal) => {
+    const dbPath = join(defaultConfigDir(), "events.db");
+    const totals = queryAggregate({}, dbPath);
+
+    console.log("");
+    if (totals.event_count > 0) {
+      console.log(`TokTrace captured ${totals.event_count} event${totals.event_count === 1 ? "" : "s"} so far.`);
+      console.log("Next: toktrace dashboard");
+    } else {
+      console.log("No events captured yet.");
+      console.log("Try making one LLM call in your app, then run: toktrace verify");
+      console.log("Or seed demo data with: toktrace seed");
+    }
+
     if (signal) {
       process.kill(process.pid, signal);
       return;
@@ -104,6 +121,8 @@ Commands:
   init              Initialize toktrace in the current project
   install           Initialize toktrace and print zero-code run command
   run               Run a command with toktrace auto-instrumentation
+  verify            Verify local setup and show first-event status
+  seed              Insert sample events for a quick dashboard preview
   pricing           List supported models and their token pricing
   budget set        Set budget limits (daily/weekly token and cost caps)
   alerts set        Configure alert delivery (desktop notifications, CLI warnings)
@@ -140,6 +159,116 @@ if (command === "run") {
   const separator = rawArgs.indexOf("--");
   const runArgs = separator >= 0 ? rawArgs.slice(separator + 1) : rawArgs.slice(1);
   runWithAutoImport(runArgs);
+}
+
+if (command === "verify") {
+  const configDir = defaultConfigDir();
+  const configPath = join(configDir, "config.json");
+  const dbPath = join(configDir, "events.db");
+  const configExists = existsSync(configPath);
+  const dbExists = existsSync(dbPath);
+  const totals = dbExists ? queryAggregate({}, dbPath) : null;
+
+  console.log("TokTrace setup check");
+  console.log(`  config: ${configExists ? "ok" : "missing"} (${configPath})`);
+  console.log(`  database: ${dbExists ? "ok" : "missing"} (${dbPath})`);
+
+  if (!configExists || !dbExists) {
+    console.log("");
+    console.log("Run this first:");
+    console.log("  toktrace install");
+    process.exit(1);
+  }
+
+  const eventCount = totals?.event_count ?? 0;
+  console.log(`  events captured: ${eventCount}`);
+
+  if (eventCount === 0) {
+    console.log("");
+    console.log("No events yet. Next steps:");
+    console.log("  1) Run your app with toktrace: toktrace run -- <your-command>");
+    console.log("  2) Make at least one LLM call");
+    console.log("  3) Re-run: toktrace verify");
+    console.log("  Optional demo mode: toktrace seed");
+    process.exit(0);
+  }
+
+  const sevenDaysAgo = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)).toISOString();
+  const recentTotals = queryAggregate({ since: sevenDaysAgo }, dbPath);
+  console.log(`  events (last 7d): ${recentTotals.event_count}`);
+  console.log(`  total tokens: ${totals?.total_tokens.toLocaleString() ?? 0}`);
+  console.log(`  estimated cost: $${(totals?.estimated_cost ?? 0).toFixed(6)}`);
+  console.log("");
+  console.log("Looks good. Open the dashboard:");
+  console.log("  toktrace dashboard");
+  process.exit(0);
+}
+
+if (command === "seed") {
+  const parsedSeed = parseArgs({
+    args: rawArgs.slice(1),
+    allowPositionals: false,
+    options: {
+      count: { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (parsedSeed.values.help) {
+    console.log(`Usage: toktrace seed [--count N]
+
+Insert sample token events so the dashboard has immediate data.
+
+Options:
+  --count N     Number of sample events to insert (default: 30, max: 500)
+  -h, --help    Show this help message
+`);
+    process.exit(0);
+  }
+
+  const requestedCount = parsedSeed.values.count ? Number(parsedSeed.values.count) : 30;
+  if (!Number.isFinite(requestedCount) || requestedCount <= 0) {
+    console.error("Error: --count must be a positive number");
+    process.exit(1);
+  }
+  const count = Math.min(Math.floor(requestedCount), 500);
+  const dbPath = join(defaultConfigDir(), "events.db");
+  initStore(dbPath);
+
+  const now = Date.now();
+  const models = ["gpt-4o-mini", "gpt-4.1-mini", "claude-sonnet-4-6"];
+  const providers = ["openai", "openai", "anthropic"];
+  const routes = ["/chat", "/summarize", "/support-agent"];
+
+  for (let i = 0; i < count; i += 1) {
+    const m = i % models.length;
+    const input = 250 + ((i * 37) % 1200);
+    const output = 80 + ((i * 19) % 600);
+    const total = input + output;
+    const timestamp = new Date(now - ((count - i) * 90_000)).toISOString();
+    insertEvent({
+      id: randomUUID(),
+      timestamp,
+      model: models[m],
+      provider: providers[m],
+      input_tokens: input,
+      output_tokens: output,
+      total_tokens: total,
+      estimated_cost: total * 0.0000015,
+      latency_ms: 120 + ((i * 43) % 1900),
+      prompt_hash: `seed_${(i % 8).toString(16)}${(i % 13).toString(16)}`,
+      app_tag: routes[i % routes.length],
+      env: "dev",
+      tool_calls: i % 3 === 0 ? JSON.stringify([{ name: "search", args: { q: "seed" } }]) : null,
+      context_size_tokens: input,
+      tool_call_count: i % 3 === 0 ? 1 : 0,
+    }, dbPath);
+  }
+
+  console.log(`Inserted ${count} sample events into ${dbPath}`);
+  console.log("Next:");
+  console.log("  toktrace dashboard");
+  process.exit(0);
 }
 
 if (command === "pricing") {

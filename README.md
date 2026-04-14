@@ -8,6 +8,7 @@ TokTrace is a lightweight Node.js token/cost tracker for LLM calls.
 npm install toktrace
 npx toktrace install
 npx toktrace run -- npm run dev
+npx toktrace verify
 ```
 
 That `toktrace run` command injects `--import toktrace/auto` so OpenAI/Anthropic/generic HTTP patching is enabled automatically.
@@ -42,6 +43,12 @@ npx toktrace dashboard
 
 Open `http://localhost:4242`.
 
+No events yet? Seed sample data:
+
+```bash
+npx toktrace seed
+```
+
 ## What gets captured
 
 - timestamp
@@ -58,6 +65,8 @@ Open `http://localhost:4242`.
 - `toktrace init` — create local config + database.
 - `toktrace install` — same as init, plus zero-code run instructions.
 - `toktrace run -- <command>` — run any command with auto-instrumentation.
+- `toktrace verify` — validate setup and first-event ingestion status.
+- `toktrace seed` — insert sample events for instant dashboard preview.
 - `toktrace dashboard` — launch local dashboard.
 - `toktrace suggest` — generate optimization suggestions.
 - `toktrace snapshot create --name "before"` and `toktrace snapshot export --name "before"`.
