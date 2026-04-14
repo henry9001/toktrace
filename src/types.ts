@@ -101,6 +101,8 @@ export interface SuggestionCard {
   rule: string;
   /** Human-readable title */
   title: string;
+  /** Evidence summary for why this suggestion was emitted */
+  evidence: string;
   /** Description of the potential impact or benefit */
   impact: string;
   /** Recommended action to take */

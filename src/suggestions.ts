@@ -11,6 +11,32 @@ export interface SuggestionRule {
   evaluate(events: LLMEvent[]): SuggestionCard[];
 }
 
+function normalizeToolParams(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "";
+  if (Array.isArray(raw)) return raw.map(normalizeToolParams).join("|");
+  return Object.entries(raw as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}:${typeof v === "string" ? v.slice(0, 60) : JSON.stringify(v)}`)
+    .join("|");
+}
+
+function parseToolCalls(value: string | null): Array<{ name: string; paramsKey: string }> {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((call) => {
+        const name = typeof call?.name === "string" ? call.name : "unknown";
+        const paramsKey = normalizeToolParams(call?.arguments ?? call?.params ?? call?.input ?? null);
+        return { name, paramsKey };
+      })
+      .filter((c) => c.paramsKey.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 // ── Built-in rules ──────────────────────────────────────────────────────
 
 const highTokenUsage: SuggestionRule = {
@@ -23,6 +49,7 @@ const highTokenUsage: SuggestionRule = {
       {
         rule: this.id,
         title: "High token usage detected",
+        evidence: `Analyzed ${events.length} events with ${total.toLocaleString()} total tokens.`,
         impact: `${total.toLocaleString()} tokens consumed — reducing prompt length could significantly cut costs.`,
         action: "Review prompts for unnecessary context, repeated instructions, or verbose system messages.",
         confidence: Math.min(1, total / 500_000),
@@ -53,7 +80,6 @@ const modelDowngrade: SuggestionRule = {
     const topPricing = pricing[topModel];
     if (!topPricing) return cards;
 
-    // Find a cheaper alternative from the same provider
     const provider = topModel.startsWith("claude-")
       ? "claude-"
       : topModel.startsWith("gpt-")
@@ -77,7 +103,8 @@ const modelDowngrade: SuggestionRule = {
       cards.push({
         rule: this.id,
         title: `Consider ${cheaper[0]} instead of ${topModel}`,
-        impact: `Top spender: ${topModel} ($${topStats.cost.toFixed(4)} across ${topStats.count} calls). Switching could save ~$${savings.toFixed(4)}.`,
+        evidence: `${topModel} accounts for $${topStats.cost.toFixed(4)} across ${topStats.count} calls.`,
+        impact: `Switching similar low-stakes traffic could save ~$${savings.toFixed(4)} in the current window.`,
         action: `Evaluate whether ${cheaper[0]} meets quality requirements for your use case, then route low-stakes calls to it.`,
         confidence: 0.6,
       });
@@ -99,32 +126,10 @@ const highLatency: SuggestionRule = {
       {
         rule: this.id,
         title: "Average latency is high",
-        impact: `Average latency is ${Math.round(avgLatency)}ms across ${events.length} calls — this may indicate oversized prompts or slow model selections.`,
+        evidence: `Average latency is ${Math.round(avgLatency)}ms across ${events.length} calls.`,
+        impact: "Slow responses often signal oversized prompts, tool fan-out, or expensive model choices.",
         action: "Consider shorter prompts, streaming responses, or switching to a faster model for latency-sensitive paths.",
         confidence: Math.min(1, avgLatency / 15_000),
-      },
-    ];
-  },
-};
-
-const outputHeavy: SuggestionRule = {
-  id: "output-heavy",
-  name: "Output-Heavy Usage Pattern",
-  evaluate(events) {
-    const totalInput = events.reduce((sum, e) => sum + e.input_tokens, 0);
-    const totalOutput = events.reduce((sum, e) => sum + e.output_tokens, 0);
-    if (totalInput === 0 || totalOutput === 0) return [];
-
-    const ratio = totalOutput / totalInput;
-    if (ratio <= 3) return [];
-
-    return [
-      {
-        rule: this.id,
-        title: "Output tokens dominate usage",
-        impact: `Output/input ratio is ${ratio.toFixed(1)}x — output tokens are typically more expensive per token.`,
-        action: "Use max_tokens or stop sequences to limit generation length where full responses aren't needed.",
-        confidence: Math.min(1, ratio / 10),
       },
     ];
   },
@@ -134,7 +139,6 @@ const repeatedStaticContext: SuggestionRule = {
   id: "repeated-static-context",
   name: "Repeated Static Context Chunk",
   evaluate(events) {
-    // Group events by prompt_hash (skip events without a hash)
     const byHash: Record<string, { count: number; totalInputTokens: number }> = {};
     for (const e of events) {
       if (!e.prompt_hash) continue;
@@ -143,17 +147,15 @@ const repeatedStaticContext: SuggestionRule = {
       byHash[e.prompt_hash].totalInputTokens += e.input_tokens;
     }
 
-    // Find hashes repeated in >5 calls where avg input >200 tokens
     const candidates = Object.entries(byHash).filter(([, stats]) => {
       const avgInput = stats.totalInputTokens / stats.count;
       return stats.count > 5 && avgInput > 200;
     });
 
     if (candidates.length === 0) return [];
-
-    // Pick the most repeated pattern
     candidates.sort((a, b) => b[1].count - a[1].count);
-    const [, top] = candidates[0];
+
+    const [hash, top] = candidates[0];
     const avgTokens = Math.round(top.totalInputTokens / top.count);
     const wastedTokens = avgTokens * (top.count - 1);
 
@@ -161,173 +163,81 @@ const repeatedStaticContext: SuggestionRule = {
       {
         rule: this.id,
         title: "Repeated static context detected",
-        impact: `The same prompt (~${avgTokens.toLocaleString()} input tokens) was sent ${top.count} times — ~${wastedTokens.toLocaleString()} redundant tokens across ${candidates.length} repeated pattern${candidates.length > 1 ? "s" : ""}.`,
-        action: "Extract the repeated content into a cached system prompt (e.g. Anthropic prompt caching, OpenAI cached completions) or deduplicate by moving static context to a shared prefix.",
+        evidence: `prompt_hash=${hash.slice(0, 12)} repeated ${top.count}x (avg ${avgTokens.toLocaleString()} input tokens).`,
+        impact: `~${wastedTokens.toLocaleString()} redundant input tokens were likely re-sent in this window.`,
+        action: "Extract repeated content into a cached system prompt or move static context into reusable prefixes.",
         confidence: Math.min(1, top.count / 20),
       },
     ];
   },
 };
 
-const highRetryLoop: SuggestionRule = {
-  id: "high-retry-loop",
-  name: "High Retry Loop / Similar Prompt Repeat",
+const repeatedToolParams: SuggestionRule = {
+  id: "repeated-tool-params",
+  name: "Repeated Near-Identical Tool Params",
   evaluate(events) {
-    const WINDOW_MS = 60_000; // 60-second window for burst detection
-    const MIN_BURST_SIZE = 3;
+    const WINDOW_MS = 2 * 60_000;
+    const MIN_REPEAT = 3;
+    const bySignature: Record<string, number[]> = {};
 
-    // Group events by prompt_hash (skip events without a hash)
-    const byHash: Record<string, LLMEvent[]> = {};
-    for (const e of events) {
-      if (!e.prompt_hash) continue;
-      if (!byHash[e.prompt_hash]) byHash[e.prompt_hash] = [];
-      byHash[e.prompt_hash].push(e);
+    for (const event of events) {
+      const t = new Date(event.timestamp).getTime();
+      for (const call of parseToolCalls(event.tool_calls)) {
+        const key = `${call.name}::${call.paramsKey}`;
+        if (!bySignature[key]) bySignature[key] = [];
+        bySignature[key].push(t);
+      }
     }
 
-    // Find the worst temporal burst across all hash groups
-    let worstBurst: {
-      count: number;
-      spanMs: number;
-      totalInputTokens: number;
-    } | null = null;
-    let totalBurstGroups = 0;
+    let worst: { signature: string; count: number; spanMs: number } | null = null;
 
-    for (const group of Object.values(byHash)) {
-      if (group.length < MIN_BURST_SIZE) continue;
-
-      group.sort(
-        (a, b) =>
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-      );
-
-      // Sliding window to find the largest burst within WINDOW_MS
-      let maxBurstSize = 0;
-      let maxBurstStart = 0;
-      let maxBurstEnd = 0;
+    for (const [signature, times] of Object.entries(bySignature)) {
+      times.sort((a, b) => a - b);
       let start = 0;
-
-      for (let end = 0; end < group.length; end++) {
-        const endTime = new Date(group[end].timestamp).getTime();
-        while (
-          endTime - new Date(group[start].timestamp).getTime() >=
-          WINDOW_MS
-        ) {
-          start++;
-        }
-        const burstSize = end - start + 1;
-        if (burstSize > maxBurstSize) {
-          maxBurstSize = burstSize;
-          maxBurstStart = start;
-          maxBurstEnd = end;
-        }
-      }
-
-      if (maxBurstSize >= MIN_BURST_SIZE) {
-        totalBurstGroups++;
-        const tokens = group
-          .slice(maxBurstStart, maxBurstEnd + 1)
-          .reduce((s, e) => s + e.input_tokens, 0);
-        const span =
-          new Date(group[maxBurstEnd].timestamp).getTime() -
-          new Date(group[maxBurstStart].timestamp).getTime();
-
-        if (!worstBurst || maxBurstSize > worstBurst.count) {
-          worstBurst = {
-            count: maxBurstSize,
-            spanMs: span,
-            totalInputTokens: tokens,
-          };
+      for (let end = 0; end < times.length; end++) {
+        while (times[end] - times[start] > WINDOW_MS) start++;
+        const count = end - start + 1;
+        if (count >= MIN_REPEAT) {
+          const span = times[end] - times[start];
+          if (!worst || count > worst.count) {
+            worst = { signature, count, spanMs: span };
+          }
         }
       }
     }
 
-    if (!worstBurst) return [];
-
-    const avgTokens = Math.round(worstBurst.totalInputTokens / worstBurst.count);
-    const wastedTokens = avgTokens * (worstBurst.count - 1);
+    if (!worst) return [];
 
     return [
       {
         rule: this.id,
-        title: "Retry loop detected",
-        impact: `${worstBurst.count} near-identical prompts fired within ${Math.round(worstBurst.spanMs / 1000)}s — ~${wastedTokens.toLocaleString()} redundant tokens across ${totalBurstGroups} detected burst${totalBurstGroups > 1 ? "s" : ""}.`,
-        action:
-          "Add response caching, exponential backoff, or a circuit-breaker to avoid redundant retries.",
-        confidence: Math.min(1, worstBurst.count / 10),
+        title: "Repeated near-identical tool params detected",
+        evidence: `${worst.count} matching tool calls for ${worst.signature.slice(0, 48)} within ${Math.round(worst.spanMs / 1000)}s.`,
+        impact: "Repeated tool requests increase latency and token overhead without adding new information.",
+        action: "Add idempotency guards, cache tool responses by parameter hash, or debounce re-requests in orchestration logic.",
+        confidence: Math.min(1, worst.count / 8),
       },
     ];
   },
 };
 
-const tooManyToolCalls: SuggestionRule = {
-  id: "too-many-tool-calls",
-  name: "Too Many Tool Calls Per Response",
+const overlongContext: SuggestionRule = {
+  id: "overlong-context",
+  name: "Overlong Prompt/System Context",
   evaluate(events) {
-    const THRESHOLD = 5;
-    const offending = events.filter((e) => e.tool_call_count > THRESHOLD);
-    if (offending.length === 0) return [];
+    const threshold = 8_000;
+    const offenders = events.filter((e) => e.input_tokens >= threshold);
+    if (offenders.length === 0) return [];
 
-    const totalToolCalls = offending.reduce((s, e) => s + e.tool_call_count, 0);
-    const avgToolCalls = Math.round(totalToolCalls / offending.length);
-    const maxToolCalls = Math.max(...offending.map((e) => e.tool_call_count));
-
+    const worst = offenders.reduce((max, e) => Math.max(max, e.input_tokens), 0);
     return [
       {
         rule: this.id,
-        title: "Too many tool calls per response",
-        impact: `${offending.length} response${offending.length > 1 ? "s" : ""} had >${THRESHOLD} tool calls (avg ${avgToolCalls}, max ${maxToolCalls}) — each tool call adds latency and token overhead from serialized results.`,
-        action:
-          "Batch related operations into fewer tools, reduce tool definition granularity, or split complex tasks across multiple turns to lower per-response tool call count.",
-        confidence: Math.min(1, offending.length / 10),
-      },
-    ];
-  },
-};
-
-const excessiveContextGrowth: SuggestionRule = {
-  id: "excessive-context-growth",
-  name: "Excessive Context Passed Between Tool Cycles",
-  evaluate(events) {
-    if (events.length < 2) return [];
-
-    const MIN_INPUT_TOKENS = 500;
-    const GROWTH_THRESHOLD = 0.5; // 50%
-
-    const sorted = [...events]
-      .filter((e) => e.input_tokens >= MIN_INPUT_TOKENS)
-      .sort(
-        (a, b) =>
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-      );
-
-    if (sorted.length < 2) return [];
-
-    let spikes = 0;
-    let maxGrowthPct = 0;
-    let totalGrowthTokens = 0;
-
-    for (let i = 1; i < sorted.length; i++) {
-      const prev = sorted[i - 1].input_tokens;
-      const curr = sorted[i].input_tokens;
-      const growth = (curr - prev) / prev;
-
-      if (growth > GROWTH_THRESHOLD) {
-        spikes++;
-        totalGrowthTokens += curr - prev;
-        if (growth > maxGrowthPct) maxGrowthPct = growth;
-      }
-    }
-
-    if (spikes === 0) return [];
-
-    return [
-      {
-        rule: this.id,
-        title: "Context size growing rapidly between calls",
-        impact: `${spikes} consecutive call pair${spikes > 1 ? "s" : ""} showed >${Math.round(GROWTH_THRESHOLD * 100)}% context growth (worst ${Math.round(maxGrowthPct * 100)}%, ~${totalGrowthTokens.toLocaleString()} added tokens) — suggests tool results are accumulating in context without pruning.`,
-        action:
-          "Summarize or truncate tool results before appending to context, use sliding-window context management, or drop earlier tool outputs once consumed.",
-        confidence: Math.min(1, spikes / 5),
+        title: "Overlong prompt/context detected",
+        evidence: `${offenders.length} calls exceeded ${threshold.toLocaleString()} input tokens (max ${worst.toLocaleString()}).`,
+        impact: "Large contexts raise cost, latency, and increase chance of repeated static payloads.",
+        action: "Trim static instructions, summarize long transcripts, and pass only the most recent/relevant context.",
+        confidence: Math.min(1, offenders.length / Math.max(events.length, 1) + 0.2),
       },
     ];
   },
@@ -338,20 +248,11 @@ export const builtinRules: SuggestionRule[] = [
   highTokenUsage,
   modelDowngrade,
   highLatency,
-  outputHeavy,
   repeatedStaticContext,
-  highRetryLoop,
-  tooManyToolCalls,
-  excessiveContextGrowth,
+  repeatedToolParams,
+  overlongContext,
 ];
 
-/**
- * Run suggestion rules against a set of LLM events and collect all resulting cards.
- *
- * @param events - Event history to evaluate
- * @param rules  - Rules to run; defaults to all built-in rules
- * @returns Array of suggestion cards from all rules
- */
 export function runRules(
   events: LLMEvent[],
   rules?: SuggestionRule[],

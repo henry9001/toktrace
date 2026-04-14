@@ -33,6 +33,13 @@ export interface TokTraceConfig {
   rules?: RulesConfig;
   /** Proxy targets for generic HTTP interception of unsupported providers. */
   proxy_targets?: ProxyTarget[];
+  /** Privacy controls for local capture and redaction behavior. */
+  privacy?: {
+    /** Capture raw prompt bodies (default false). */
+    capture_prompt_body?: boolean;
+    /** User-defined redaction hook names/modules. */
+    redaction_hooks?: string[];
+  };
 }
 
 export function defaultConfigDir(): string {

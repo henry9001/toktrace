@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 interface SuggestionCard {
   rule: string;
   title: string;
+  evidence: string;
   impact: string;
   action: string;
   confidence: number;
@@ -42,9 +43,7 @@ export function SuggestionsPanel() {
   }, []);
 
   function updateStatus(rule: string, status: CardStatus) {
-    setCards((prev) =>
-      prev.map((c) => (c.rule === rule ? { ...c, status } : c)),
-    );
+    setCards((prev) => prev.map((c) => (c.rule === rule ? { ...c, status } : c)));
   }
 
   const active = cards.filter((c) => c.status === "active");
@@ -80,64 +79,37 @@ export function SuggestionsPanel() {
         <div key={card.rule} className="card suggestion-card">
           <div className="suggestion-header">
             <h3>{card.title}</h3>
-            <span
-              className="suggestion-confidence"
-              style={{ color: confidenceColor(card.confidence) }}
-            >
+            <span className="suggestion-confidence" style={{ color: confidenceColor(card.confidence) }}>
               {confidenceLabel(card.confidence)} confidence
             </span>
           </div>
+          <p className="suggestion-evidence"><strong>Evidence:</strong> {card.evidence}</p>
           <p className="suggestion-impact">{card.impact}</p>
-          <p className="suggestion-action">
-            <strong>Action:</strong> {card.action}
-          </p>
+          <p className="suggestion-action"><strong>Action:</strong> {card.action}</p>
           <div className="suggestion-actions">
-            <button
-              className="btn-action"
-              onClick={() => updateStatus(card.rule, "actioned")}
-            >
-              Mark actioned
-            </button>
-            <button
-              className="btn-dismiss"
-              onClick={() => updateStatus(card.rule, "dismissed")}
-            >
-              Dismiss
-            </button>
+            <button className="btn-action" onClick={() => updateStatus(card.rule, "actioned")}>Mark actioned</button>
+            <button className="btn-dismiss" onClick={() => updateStatus(card.rule, "dismissed")}>Dismiss</button>
           </div>
         </div>
       ))}
       {dismissed.length > 0 && (
         <div className="suggestion-dismissed-toggle">
-          <button
-            className="btn-toggle"
-            onClick={() => setShowDismissed(!showDismissed)}
-          >
+          <button className="btn-toggle" onClick={() => setShowDismissed(!showDismissed)}>
             {showDismissed ? "Hide" : "Show"} {dismissed.length} dismissed/actioned
           </button>
-          {showDismissed &&
-            dismissed.map((card) => (
-              <div
-                key={card.rule}
-                className="card suggestion-card suggestion-inactive"
-              >
-                <div className="suggestion-header">
-                  <h3>{card.title}</h3>
-                  <span className="suggestion-status-badge">
-                    {card.status === "actioned" ? "Actioned" : "Dismissed"}
-                  </span>
-                </div>
-                <p className="suggestion-impact">{card.impact}</p>
-                <div className="suggestion-actions">
-                  <button
-                    className="btn-restore"
-                    onClick={() => updateStatus(card.rule, "active")}
-                  >
-                    Restore
-                  </button>
-                </div>
+          {showDismissed && dismissed.map((card) => (
+            <div key={card.rule} className="card suggestion-card suggestion-inactive">
+              <div className="suggestion-header">
+                <h3>{card.title}</h3>
+                <span className="suggestion-status-badge">{card.status === "actioned" ? "Actioned" : "Dismissed"}</span>
               </div>
-            ))}
+              <p className="suggestion-evidence"><strong>Evidence:</strong> {card.evidence}</p>
+              <p className="suggestion-impact">{card.impact}</p>
+              <div className="suggestion-actions">
+                <button className="btn-restore" onClick={() => updateStatus(card.rule, "active")}>Restore</button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
