@@ -150,6 +150,12 @@ li { margin-bottom: 0.3rem; font-size: 0.9rem; }
   margin-bottom: 0.5rem;
 }
 
+.suggestion-evidence {
+  font-size: 0.82rem;
+  color: #4b5563;
+  margin-bottom: 0.4rem;
+}
+
 .suggestion-action {
   font-size: 0.85rem;
   color: #666;

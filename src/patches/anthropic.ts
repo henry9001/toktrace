@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { insertEvent } from "../store.js";
 import { estimateCost } from "../pricing.js";
 import type { LLMEvent, TokTraceOptions } from "../types.js";
+import { sanitizePromptPayload } from "../privacy.js";
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const tryRequire: NodeRequire =
@@ -58,6 +59,7 @@ export function apply(options: TokTraceOptions): boolean {
       const outputTokens = usage.output_tokens ?? 0;
       const model = (response.model as string) ?? (body.model as string) ?? "unknown";
       const messages = body.messages as unknown[] | undefined;
+      const sanitized = sanitizePromptPayload(options, messages, body);
 
       // Extract tool_use blocks from Anthropic response content
       const contentBlocks = response.content as Array<Record<string, unknown>> | undefined;
@@ -74,9 +76,7 @@ export function apply(options: TokTraceOptions): boolean {
         total_tokens: inputTokens + outputTokens,
         estimated_cost: estimateCost(model, inputTokens, outputTokens),
         latency_ms: latency,
-        prompt_hash: messages
-          ? createHash("sha256").update(JSON.stringify(messages)).digest("hex").slice(0, 16)
-          : null,
+        prompt_hash: sanitized.promptHash,
         app_tag: null,
         env: process.env.NODE_ENV ?? null,
         tool_calls: toolCallsJson,
@@ -84,7 +84,7 @@ export function apply(options: TokTraceOptions): boolean {
         tool_call_count: toolUseBlocks.length,
       };
 
-      insertEvent(event, options.dbPath, { messages, body });
+      insertEvent(event, options.dbPath, { messages: sanitized.messages, body: sanitized.body });
       return response;
     });
   };
