@@ -806,6 +806,128 @@ export function createApp(dbPath?: string): express.Express {
     }
   });
 
+  app.get("/api/spend-rankings", (_req, res) => {
+    try {
+      const now = new Date();
+      const weekStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)
+      ).toISOString();
+      const events = queryEvents({ since: weekStart }, dbPath);
+      const cards = runRules(events).sort((a, b) => b.confidence - a.confidence);
+
+      const byEndpoint = new Map<string, { endpoint: string; estimated_cost: number; event_count: number }>();
+      const byPromptHash = new Map<string, { prompt_hash: string; estimated_cost: number; event_count: number }>();
+      const byModel = new Map<string, { model: string; estimated_cost: number; event_count: number }>();
+
+      for (const e of events) {
+        const endpoint = e.app_tag ?? "unlabeled";
+        const promptHash = e.prompt_hash ?? "unknown";
+        const endpointRow = byEndpoint.get(endpoint) ?? { endpoint, estimated_cost: 0, event_count: 0 };
+        endpointRow.estimated_cost += e.estimated_cost;
+        endpointRow.event_count += 1;
+        byEndpoint.set(endpoint, endpointRow);
+
+        const promptRow = byPromptHash.get(promptHash) ?? { prompt_hash: promptHash, estimated_cost: 0, event_count: 0 };
+        promptRow.estimated_cost += e.estimated_cost;
+        promptRow.event_count += 1;
+        byPromptHash.set(promptHash, promptRow);
+
+        const modelRow = byModel.get(e.model) ?? { model: e.model, estimated_cost: 0, event_count: 0 };
+        modelRow.estimated_cost += e.estimated_cost;
+        modelRow.event_count += 1;
+        byModel.set(e.model, modelRow);
+      }
+
+      const toTop = <T>(rows: Iterable<T>, keyFn: (row: T) => number) =>
+        [...rows].sort((a, b) => keyFn(b) - keyFn(a)).slice(0, 5);
+
+      res.json({
+        window_start: weekStart,
+        window_end: now.toISOString(),
+        top_endpoints: toTop(byEndpoint.values(), (r) => r.estimated_cost),
+        top_prompts: toTop(byPromptHash.values(), (r) => r.estimated_cost),
+        model_mix: toTop(byModel.values(), (r) => r.estimated_cost),
+        suggestions: cards.slice(0, 5),
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/privacy", (_req, res) => {
+    try {
+      const config = loadConfig();
+      const privacy = config.privacy ?? {};
+      res.json({
+        prompt_body_capture: privacy.capture_prompt_body ?? false,
+        redaction_hooks: privacy.redaction_hooks ?? [],
+        retention: "Telemetry is stored locally in SQLite under ~/.toktrace and never sent to TokTrace servers.",
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/report/markdown", (_req, res) => {
+    try {
+      const now = new Date();
+      const weekStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6)
+      ).toISOString();
+      const events = queryEvents({ since: weekStart }, dbPath);
+      const cards = runRules(events).sort((a, b) => b.confidence - a.confidence);
+
+      const agg = queryAggregate({ since: weekStart }, dbPath);
+      const topModels = agg.by_model.slice(0, 5);
+      const byEndpoint = new Map<string, { app_tag: string; estimated_cost: number; event_count: number }>();
+      const byPrompt = new Map<string, { prompt_hash: string; estimated_cost: number; count: number }>();
+      for (const e of events) {
+        const endpoint = e.app_tag ?? "unlabeled";
+        const endpointRow = byEndpoint.get(endpoint) ?? { app_tag: endpoint, estimated_cost: 0, event_count: 0 };
+        endpointRow.estimated_cost += e.estimated_cost;
+        endpointRow.event_count += 1;
+        byEndpoint.set(endpoint, endpointRow);
+        const key = e.prompt_hash ?? "unknown";
+        const row = byPrompt.get(key) ?? { prompt_hash: key, estimated_cost: 0, count: 0 };
+        row.estimated_cost += e.estimated_cost;
+        row.count += 1;
+        byPrompt.set(key, row);
+      }
+      const topEndpoints = [...byEndpoint.values()].sort((a, b) => b.estimated_cost - a.estimated_cost).slice(0, 5);
+      const topPrompts = [...byPrompt.values()].sort((a, b) => b.estimated_cost - a.estimated_cost).slice(0, 5);
+
+      const md = [
+        "# TokTrace Dashboard Export",
+        "",
+        `Window: ${weekStart} → ${now.toISOString()}`,
+        "",
+        "## Totals",
+        `- Events: ${agg.event_count}`,
+        `- Total tokens: ${agg.total_tokens.toLocaleString()}`,
+        `- Estimated cost: $${agg.estimated_cost.toFixed(4)}`,
+        "",
+        "## Top 5 Endpoints by Spend",
+        ...topEndpoints.map((endpoint, i) => `${i + 1}. ${endpoint.app_tag} — $${endpoint.estimated_cost.toFixed(4)} (${endpoint.event_count} calls)`),
+        "",
+        "## Top 5 Prompts by Spend",
+        ...topPrompts.map((p, i) => `${i + 1}. ${p.prompt_hash} — $${p.estimated_cost.toFixed(4)} (${p.count} calls)`),
+        "",
+        "## Model Mix",
+        ...topModels.map((m, i) => `${i + 1}. ${m.model} — $${m.estimated_cost.toFixed(4)} (${m.event_count} calls)`),
+        "",
+        "## Optimization Opportunities",
+        ...(cards.length > 0
+          ? cards.slice(0, 5).map((c, i) => `${i + 1}. **${c.title}** (${Math.round(c.confidence * 100)}% confidence)\n   - Evidence: ${c.evidence}\n   - Impact: ${c.impact}\n   - Next action: ${c.action}`)
+          : ["No active opportunities detected in this window."]),
+        "",
+      ].join("\n");
+
+      res.type("text/markdown").setHeader("Content-Disposition", "attachment; filename=\"toktrace-report.md\"").send(md);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   return app;
 }
 
