@@ -23,6 +23,12 @@ export interface TokTraceOptions {
   patchGenericHTTP?: boolean;
   /** Proxy target definitions for unsupported providers. Each target describes a URL pattern and how to extract token usage. */
   proxyTargets?: ProxyTarget[];
+  /** Capture prompt/message bodies for hashing + rule checks. Defaults to false. */
+  capturePromptBody?: boolean;
+  /** Built-in redaction profiles to apply before using captured prompt bodies. */
+  redactionProfiles?: string[];
+  /** Custom redaction hooks applied to captured text values. */
+  redactionHooks?: Array<(text: string) => string>;
 }
 
 export interface LLMEvent {

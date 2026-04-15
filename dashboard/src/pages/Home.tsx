@@ -26,6 +26,7 @@ interface SpendRankings {
   top_endpoints: SpendRow[];
   top_prompts: SpendRow[];
   model_mix: SpendRow[];
+  suggestions: Array<{ rule: string; title: string; confidence: number }>;
 }
 
 interface PrivacyStatus {
@@ -91,7 +92,7 @@ export function Home() {
 
   useEffect(() => {
     fetch("/api/budget-status").then((r) => r.json()).then(setBudget).catch(() => setBudget({ configured: false }));
-    fetch("/api/spend-rankings").then((r) => r.json()).then(setRankings).catch(() => setRankings({ top_endpoints: [], top_prompts: [], model_mix: [] }));
+    fetch("/api/spend-rankings").then((r) => r.json()).then(setRankings).catch(() => setRankings({ top_endpoints: [], top_prompts: [], model_mix: [], suggestions: [] }));
     fetch("/api/privacy").then((r) => r.json()).then(setPrivacy).catch(() => setPrivacy(null));
   }, []);
 
@@ -141,6 +142,18 @@ export function Home() {
           <SpendTable title="Top Endpoints by Spend" rows={rankings.top_endpoints} keyName="endpoint" />
           <SpendTable title="Top Prompts by Spend" rows={rankings.top_prompts} keyName="prompt_hash" />
           <SpendTable title="Model Mix" rows={rankings.model_mix} keyName="model" />
+          <div className="card">
+            <h3>Related opportunities</h3>
+            {rankings.suggestions.length === 0 ? <p className="empty">No linked suggestions.</p> : (
+              <ul>
+                {rankings.suggestions.map((suggestion) => (
+                  <li key={suggestion.rule}>
+                    <a href={`#suggestion-${suggestion.rule}`}>{suggestion.title}</a> ({Math.round(suggestion.confidence * 100)}%)
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 

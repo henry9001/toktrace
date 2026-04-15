@@ -37,7 +37,7 @@ export interface TokTraceConfig {
   privacy?: {
     /** Capture raw prompt bodies (default false). */
     capture_prompt_body?: boolean;
-    /** User-defined redaction hook names/modules. */
+    /** Built-in redaction profiles (supported: "email", "api-key", "number"). */
     redaction_hooks?: string[];
   };
 }

@@ -2,7 +2,7 @@ import express from "express";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
-import { queryEvents, listSnapshots, queryAggregate, queryTrend, listDistinctModels, listDistinctRoutes } from "./store.js";
+import { queryEvents, listSnapshots, queryAggregate, queryTrend, listDistinctModels, listDistinctRoutes, countRuleViolations } from "./store.js";
 import { compareSnapshots } from "./compare.js";
 import { loadConfig } from "./config.js";
 import { openBudgetDb, getPeriodTotals } from "./budget.js";
@@ -799,6 +799,20 @@ export function createApp(dbPath?: string): express.Express {
       ).toISOString();
       const events = queryEvents({ since: weekStart }, dbPath);
       const cards = runRules(events);
+      const overlongPromptViolations = countRuleViolations(
+        { since: weekStart, rule: "overlong_system_prompt" },
+        dbPath,
+      );
+      if (overlongPromptViolations > 0) {
+        cards.push({
+          rule: "overlong-system-prompt",
+          title: "Overlong system prompt violations detected",
+          evidence: `${overlongPromptViolations} rule violation(s) for overlong system prompts were recorded in this window.`,
+          impact: "Large system prompts raise latency/cost and reduce room for task-specific context.",
+          action: "Move static policy/context to compact templates and trim boilerplate in system/developer messages.",
+          confidence: Math.min(1, overlongPromptViolations / 10),
+        });
+      }
       cards.sort((a, b) => b.confidence - a.confidence);
       res.json(cards);
     } catch (err) {

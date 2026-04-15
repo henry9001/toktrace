@@ -64,6 +64,7 @@ function applyMigrations(db: Database.Database): void {
       rule TEXT NOT NULL,
       content_hash TEXT NOT NULL,
       title TEXT NOT NULL,
+      evidence TEXT NOT NULL DEFAULT '',
       impact TEXT NOT NULL,
       action TEXT NOT NULL,
       confidence REAL NOT NULL DEFAULT 0,
@@ -87,6 +88,9 @@ function applyMigrations(db: Database.Database): void {
   }
   if (!colNames.has("tool_call_count")) {
     db.exec("ALTER TABLE events ADD COLUMN tool_call_count INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!colNames.has("evidence")) {
+    db.exec("ALTER TABLE suggestions ADD COLUMN evidence TEXT NOT NULL DEFAULT ''");
   }
 
   initBudgetSchema(db);
@@ -430,10 +434,10 @@ export function buildSummary(events: LLMEvent[]): SnapshotSummary {
 
 // ── Suggestion persistence ──────────────────────────────────────────────
 
-/** Compute a content hash for dedup: rule + title + impact + action. */
+/** Compute a content hash for dedup: rule + title + evidence + impact + action. */
 export function suggestionContentHash(card: SuggestionCard): string {
   return createHash("sha256")
-    .update(`${card.rule}\n${card.title}\n${card.impact}\n${card.action}`)
+    .update(`${card.rule}\n${card.title}\n${card.evidence}\n${card.impact}\n${card.action}`)
     .digest("hex")
     .slice(0, 16);
 }
@@ -450,10 +454,11 @@ export function saveSuggestions(cards: SuggestionCard[], dbPath?: string): numbe
 
   const stmt = db.prepare(`
     INSERT INTO suggestions
-      (id, rule, content_hash, title, impact, action, confidence, status, created_at, updated_at)
+      (id, rule, content_hash, title, evidence, impact, action, confidence, status, created_at, updated_at)
     VALUES
-      (@id, @rule, @content_hash, @title, @impact, @action, @confidence, 'active', @now, @now)
+      (@id, @rule, @content_hash, @title, @evidence, @impact, @action, @confidence, 'active', @now, @now)
     ON CONFLICT(rule, content_hash) DO UPDATE SET
+      evidence = @evidence,
       confidence = @confidence,
       updated_at = @now
   `);
@@ -518,4 +523,25 @@ export function dismissSuggestion(id: string, dbPath?: string): boolean {
  */
 export function actionSuggestion(id: string, dbPath?: string): boolean {
   return updateSuggestionStatus(id, "actioned", dbPath);
+}
+
+export function countRuleViolations(
+  opts: { since?: string; rule?: string } = {},
+  dbPath?: string,
+): number {
+  const db = openDb(dbPath);
+  const conditions: string[] = [];
+  const params: Record<string, string> = {};
+  if (opts.since) {
+    conditions.push("fired_at >= @since");
+    params.since = opts.since;
+  }
+  if (opts.rule) {
+    conditions.push("rule = @rule");
+    params.rule = opts.rule;
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const row = db.prepare(`SELECT COUNT(*) as count FROM rule_violations ${where}`).get(params) as { count: number };
+  db.close();
+  return row.count;
 }

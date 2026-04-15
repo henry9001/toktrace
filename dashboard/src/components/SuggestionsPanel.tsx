@@ -68,7 +68,7 @@ export function SuggestionsPanel() {
   }
 
   return (
-    <div>
+    <div id="suggestions-section">
       <h2>Suggestions</h2>
       {active.length === 0 && (
         <div className="card">
@@ -76,7 +76,7 @@ export function SuggestionsPanel() {
         </div>
       )}
       {active.map((card) => (
-        <div key={card.rule} className="card suggestion-card">
+        <div key={card.rule} id={`suggestion-${card.rule}`} className="card suggestion-card">
           <div className="suggestion-header">
             <h3>{card.title}</h3>
             <span className="suggestion-confidence" style={{ color: confidenceColor(card.confidence) }}>

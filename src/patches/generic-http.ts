@@ -1,7 +1,8 @@
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { insertEvent } from "../store.js";
 import { estimateCost } from "../pricing.js";
 import type { LLMEvent, ProxyTarget, TokTraceOptions } from "../types.js";
+import { sanitizePromptPayload } from "../privacy.js";
 
 export const name = "generic-http";
 
@@ -102,6 +103,7 @@ export function apply(options: TokTraceOptions): boolean {
           "unknown";
 
         const messages = reqBody?.messages as unknown[] | undefined;
+        const sanitized = sanitizePromptPayload(options, messages, reqBody ?? undefined);
 
         const event: LLMEvent = {
           id: randomUUID(),
@@ -113,9 +115,7 @@ export function apply(options: TokTraceOptions): boolean {
           total_tokens: inputTokens + outputTokens,
           estimated_cost: estimateCost(model, inputTokens, outputTokens),
           latency_ms: latency,
-          prompt_hash: messages
-            ? createHash("sha256").update(JSON.stringify(messages)).digest("hex").slice(0, 16)
-            : null,
+          prompt_hash: sanitized.promptHash,
           app_tag: null,
           env: process.env.NODE_ENV ?? null,
           tool_calls: null,
@@ -123,10 +123,7 @@ export function apply(options: TokTraceOptions): boolean {
           tool_call_count: 0,
         };
 
-        insertEvent(event, options.dbPath, {
-          messages,
-          body: reqBody ?? undefined,
-        });
+        insertEvent(event, options.dbPath, { messages: sanitized.messages, body: sanitized.body });
       }).catch(() => {
         // Response wasn't JSON — not an LLM call, silently skip
       });
