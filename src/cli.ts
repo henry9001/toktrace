@@ -15,6 +15,7 @@ import { deliverPendingAlerts } from "./alerts.js";
 import { openBudgetDb } from "./budget.js";
 import { listPricing } from "./pricing.js";
 import { runRules } from "./suggestions.js";
+import { importClaudeCode } from "./importers/claudeCode.js";
 
 function readVersion(): string {
   const here = typeof __filename !== "undefined"
@@ -137,6 +138,7 @@ Commands:
   snapshot export   Export a snapshot as a ZIP bundle (JSON + MD + metadata)
   suggest           Run optimization rules and print suggestion cards
   dashboard         Launch the comparison dashboard web UI
+  import <source>   Import session usage from a CLI tool (e.g. claude-code)
 
 Options:
   -h, --help     Show this help message
@@ -935,6 +937,59 @@ Options:
   process.exit(0);
 }
 
+if (command === "import") {
+  const importArgs = rawArgs.slice(rawArgs.indexOf("import") + 1);
+  const source = importArgs.find((a) => !a.startsWith("-"));
+
+  if (!source || source === "help" || importArgs.includes("--help") || importArgs.includes("-h")) {
+    console.log(`Usage: toktrace import <source> [options]
+
+Import session usage from a CLI tool into the events DB.
+
+Sources:
+  claude-code   Import from Claude Code session logs (~/.claude/projects)
+
+Options:
+  --root <path>   Override the source root directory
+  -h, --help      Show this help message
+`);
+    process.exit(source ? 0 : 1);
+  }
+
+  const parsed = parseArgs({
+    args: importArgs.filter((a) => a !== source),
+    allowPositionals: false,
+    options: {
+      root: { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (source === "claude-code") {
+    const result = importClaudeCode({
+      root: parsed.values.root as string | undefined,
+      dbPath: join(defaultConfigDir(), "events.db"),
+    });
+    console.log(`Claude Code import:`);
+    console.log(`  files scanned:    ${result.files_scanned}`);
+    console.log(`  events imported:  ${result.events_imported}`);
+    if (result.events_skipped > 0) {
+      console.log(`  events skipped:   ${result.events_skipped} (malformed lines)`);
+    }
+    if (result.errors.length > 0) {
+      console.log(`  errors:`);
+      for (const err of result.errors.slice(0, 10)) console.log(`    ${err}`);
+      if (result.errors.length > 10) console.log(`    ...and ${result.errors.length - 10} more`);
+    }
+    console.log(`\nNext: toktrace dashboard`);
+    process.exit(0);
+  }
+
+  console.error(`Unknown import source: ${source}`);
+  console.error(`Supported: claude-code`);
+  process.exit(1);
+}
+
 if (command === "dashboard") {
   const dashArgs = rawArgs.slice(rawArgs.indexOf("dashboard") + 1);
   const parsed = parseArgs({
@@ -978,7 +1033,8 @@ Options:
   command !== "alerts" &&
   command !== "proxy" &&
   command !== "snapshot" &&
-  command !== "suggest"
+  command !== "suggest" &&
+  command !== "import"
 ) {
   console.error(`Unknown command: ${command}`);
   process.exit(1);
