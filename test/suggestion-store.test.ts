@@ -18,6 +18,7 @@ function makeCard(overrides: Partial<SuggestionCard> = {}): SuggestionCard {
   return {
     rule: "test-rule",
     title: "Test suggestion",
+    evidence: "Test evidence for the suggestion",
     impact: "Some impact description",
     action: "Do something about it",
     confidence: 0.75,

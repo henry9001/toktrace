@@ -89,7 +89,10 @@ function applyMigrations(db: Database.Database): void {
   if (!colNames.has("tool_call_count")) {
     db.exec("ALTER TABLE events ADD COLUMN tool_call_count INTEGER NOT NULL DEFAULT 0");
   }
-  if (!colNames.has("evidence")) {
+
+  const suggestionCols = db.prepare("PRAGMA table_info(suggestions)").all() as Array<{ name: string }>;
+  const suggestionColNames = new Set(suggestionCols.map((c) => c.name));
+  if (!suggestionColNames.has("evidence")) {
     db.exec("ALTER TABLE suggestions ADD COLUMN evidence TEXT NOT NULL DEFAULT ''");
   }
 

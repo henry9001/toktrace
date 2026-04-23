@@ -3,6 +3,30 @@
   "version": "0.1.0",
   "description": "Zero-code LLM call tracing and cost tracking",
   "license": "MIT",
+  "author": "henry9001",
+  "homepage": "https://github.com/henry9001/toktrace#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/henry9001/toktrace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/henry9001/toktrace/issues"
+  },
+  "keywords": [
+    "llm",
+    "tracing",
+    "observability",
+    "openai",
+    "anthropic",
+    "tokens",
+    "cost",
+    "telemetry",
+    "nodejs"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
     "node": ">=18"
   },
@@ -46,7 +70,9 @@
     "lint": "eslint src --ext .ts",
     "test": "npx tsx --test test/**/*.test.ts",
     "dev": "tsup --watch",
-    "dev:dashboard": "vite dev --config dashboard/vite.config.ts"
+    "dev:dashboard": "vite dev --config dashboard/vite.config.ts",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm test"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
