@@ -16,6 +16,7 @@ import { openBudgetDb } from "./budget.js";
 import { listPricing } from "./pricing.js";
 import { runRules } from "./suggestions.js";
 import { importClaudeCode } from "./importers/claudeCode.js";
+import { importCodex } from "./importers/codex.js";
 
 function readVersion(): string {
   const here = typeof __filename !== "undefined"
@@ -948,9 +949,11 @@ Import session usage from a CLI tool into the events DB.
 
 Sources:
   claude-code   Import from Claude Code session logs (~/.claude/projects)
+  codex         Import from OpenAI Codex CLI rollouts ($CODEX_HOME/sessions)
 
 Options:
   --root <path>   Override the source root directory
+  --inspect       [codex] Print event_msg subtype histogram and exit (no writes)
   -h, --help      Show this help message
 `);
     process.exit(source ? 0 : 1);
@@ -961,6 +964,7 @@ Options:
     allowPositionals: false,
     options: {
       root: { type: "string" },
+      inspect: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -985,8 +989,40 @@ Options:
     process.exit(0);
   }
 
+  if (source === "codex") {
+    const result = importCodex({
+      root: parsed.values.root as string | undefined,
+      dbPath: join(defaultConfigDir(), "events.db"),
+      inspect: Boolean(parsed.values.inspect),
+    });
+    console.log(`Codex import${parsed.values.inspect ? " (inspect mode)" : ""}:`);
+    console.log(`  files scanned:    ${result.files_scanned}`);
+    console.log(`  events imported:  ${result.events_imported}`);
+    if (result.events_skipped > 0) {
+      console.log(`  events skipped:   ${result.events_skipped}`);
+    }
+    if (result.subtypes_seen) {
+      console.log(`  event_msg subtypes seen:`);
+      for (const [k, v] of Object.entries(result.subtypes_seen).sort((a, b) => b[1] - a[1])) {
+        console.log(`    ${k.padEnd(30)} ${v}`);
+      }
+    }
+    if (result.errors.length > 0) {
+      console.log(`  errors:`);
+      for (const err of result.errors.slice(0, 10)) console.log(`    ${err}`);
+      if (result.errors.length > 10) console.log(`    ...and ${result.errors.length - 10} more`);
+    }
+    if (result.files_scanned > 0 && result.events_imported === 0 && !parsed.values.inspect) {
+      console.log(`\nNote: no token_count events found — generate a successful Codex call first,`);
+      console.log(`then re-run. Use --inspect to see which subtypes appear in your rollouts.`);
+    } else {
+      console.log(`\nNext: toktrace dashboard`);
+    }
+    process.exit(0);
+  }
+
   console.error(`Unknown import source: ${source}`);
-  console.error(`Supported: claude-code`);
+  console.error(`Supported: claude-code, codex`);
   process.exit(1);
 }
 
