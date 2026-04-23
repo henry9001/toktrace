@@ -68,7 +68,7 @@
     "build:sea": "npm run build && bash scripts/build-sea.sh",
     "typecheck": "tsc --noEmit && tsc --noEmit -p dashboard/tsconfig.json",
     "lint": "eslint src --ext .ts",
-    "test": "npx tsx --test test/**/*.test.ts",
+    "test": "tsx --test $(find test -name '*.test.ts')",
     "dev": "tsup --watch",
     "dev:dashboard": "vite dev --config dashboard/vite.config.ts",
     "prepack": "npm run build",
@@ -85,6 +85,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.0.0",
     "tsup": "^8.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.0",
     "vite": "^8.0.7"
   },
