@@ -27,6 +27,8 @@ const PRICING: Record<string, ModelPricing> = {
   "o1-mini":           { input: 3e-6,    output: 12e-6 },
 
   // ── Anthropic ───────────────────────────────────────────
+  "claude-opus-4-7":              { input: 15e-6,   output: 75e-6 },
+  "claude-sonnet-4-7":            { input: 3e-6,    output: 15e-6 },
   "claude-opus-4-6":              { input: 15e-6,   output: 75e-6 },
   "claude-sonnet-4-6":            { input: 3e-6,    output: 15e-6 },
   "claude-opus-4":                { input: 15e-6,   output: 75e-6 },

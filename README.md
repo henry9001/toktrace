@@ -60,6 +60,18 @@ npx toktrace seed
 - environment tag
 - tool call metadata (`tool_call_count`, serialized tool calls)
 
+## Importing from AI coding CLIs
+
+Already using Claude Code? TokTrace can import every LLM call from your local session logs (no proxy, no key, no runtime injection):
+
+```bash
+toktrace import claude-code
+```
+
+Walks `~/.claude/projects/*/*.jsonl`, upserts one event per assistant message with full token breakdown (input / output / cache-read / cache-creation) and cache-aware cost estimation. Re-runs are idempotent — safe to put on a cron. Events are tagged `env=claude-code` so you can filter or compare to your app-level LLM traffic.
+
+Cost estimates for Claude Code Max subscribers are **hypothetical pay-per-token numbers**, useful for tracking usage volume and per-project burn but not your actual bill (which is flat).
+
 ## Useful commands
 
 - `toktrace init` — create local config + database.
@@ -68,5 +80,6 @@ npx toktrace seed
 - `toktrace verify` — validate setup and first-event ingestion status.
 - `toktrace seed` — insert sample events for instant dashboard preview.
 - `toktrace dashboard` — launch local dashboard.
+- `toktrace import claude-code` — import usage from Claude Code session logs.
 - `toktrace suggest` — generate optimization suggestions.
 - `toktrace snapshot create --name "before"` and `toktrace snapshot export --name "before"`.
